@@ -1,0 +1,14 @@
+{
+  "SOUL_JAZZ":      ["Nina Simone", "Bill Withers", "Django Reinhardt", "Ella Fitzgerald", "Otis Redding"],
+  "FOLK_SINGER":    ["Bob Dylan", "Paul Simon", "Leonard Cohen", "Nick Drake", "José González"],
+  "ELECTRONIC_HIP": ["DJ Shadow", "Bonobo", "Parov Stelar", "Wax Tailor", "Chinese Man"],
+  "INDIE_WORLD":    ["dEUS", "Eels", "Beirut", "Stromae", "Tom Waits"],
+  "DRAMA":          ["Bergman", "Cassavetes", "Wong Kar-Wai"],
+  "CRIME_THRILLER": ["Hitchcock", "Coen Brothers", "Michael Mann"],
+  "ARTHOUSE":       ["Tarkovsky", "Godard", "David Lynch"],
+  "SCI_FI":         ["Dan Simmons", "Arthur C. Clarke", "Kubrick", "Denis Villeneuve"],
+  "FANTASY_COMEDY": ["Terry Pratchett", "Douglas Adams", "Miyazaki"],
+  "ACTION_ADV":     ["Kurosawa", "John Huston"],
+  "ANIMATION":      ["Miyazaki", "Pixar", "Laika"],
+  "HISTORY":        ["Ken Burns", "Terrence Malick"]
+}
