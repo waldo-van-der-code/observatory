@@ -34,3 +34,6 @@ build/
 
 # Logs
 *.log
+
+# Local draft files
+*-draft.md
