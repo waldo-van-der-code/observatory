@@ -23,11 +23,13 @@ Observatory ingests exports you download yourself from the original services:
 
 | Source | What you export | Where to get it |
 |--------|----------------|-----------------|
-| **Spotify** | Extended streaming history (JSON) | Account → Privacy → Request data |
+| **Spotify** | Extended streaming history (JSON) | Account → Privacy → Request data → Extended streaming history |
 | **Goodreads** | Library export (CSV) | Account → Import/Export |
 | **IMDB** | Ratings export (CSV) | Your ratings → … → Export |
 | **Netflix** | Viewing activity (CSV) | Account → Privacy → Download your data |
-| **JustWatch** | Liked / seen lists (CSV) | Profile → Export |
+| **JustWatch** | Liked / seen lists (CSV) | Profile → Export (seen list + liked list) |
+| **Audible** | Purchase/history JSON | Manual export or `audible_extra.json` |
+| **YouTube** | Watch history (JSON) | Google Takeout → YouTube → Watch history *(planned — not yet in pipeline)* |
 
 All files go in `data/raw/`. None of your data is uploaded anywhere.
 
@@ -62,11 +64,13 @@ export ANTHROPIC_API_KEY=sk-ant-...  # or add to .env
 Add your data exports to `data/raw/`, then run the pipeline:
 
 ```bash
-# Ingest all data sources (reads data/raw/, writes data/processed/)
-python3 scripts/ingest_books.py
-python3 scripts/ingest_films.py       # requires data/raw/imdb_ratings.csv
-python3 scripts/ingest_netflix.py     # requires data/raw/netflix_viewing.csv
-python3 scripts/ingest_spotify.py     # requires data/raw/spotify_streaming_audio_*.json
+# Ingest all data sources present in data/raw/
+python3 scripts/ingest_books.py                  # Goodreads CSV
+python3 scripts/ingest_films.py                  # IMDB ratings CSV
+python3 scripts/ingest_netflix.py                # Netflix viewing CSV
+python3 scripts/ingest_justwatch.py              # JustWatch seen/liked CSVs
+python3 scripts/ingest_spotify.py                # Spotify extended history JSON(s)
+python3 scripts/ingest_audible.py                # Audible JSON (optional)
 
 # Build AI taste profile (calls Anthropic API — runs once, result cached)
 python3 scripts/build_profile.py
@@ -79,11 +83,12 @@ uvicorn server:app --reload
 # → http://localhost:8000
 ```
 
-Or use the convenience script:
+Or use the convenience script (automatically skips sources whose files are absent):
 
 ```bash
-./run.sh --refresh   # full pipeline including AI profile rebuild
-./run.sh --serve     # start server only
+./run.sh             # ingest everything present + build dashboard
+./run.sh --refresh   # same + rebuild AI taste profile
+./run.sh --serve     # start server only (dashboard already built)
 ```
 
 ---

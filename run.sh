@@ -1,26 +1,61 @@
 #!/bin/bash
 # Full pipeline: ingest → profile (if --refresh) → dashboard → server
 # Usage: ./run.sh [--refresh] [--serve]
-#   --serve  start the FastAPI server on port 8000 (instead of pipeline)
+#   --serve   start the FastAPI server on port 8000
+#   --refresh rebuild the AI taste profile (requires ANTHROPIC_API_KEY)
 set -e
-PYTHON=/Users/waldo.vanderhaeghen/Library/Scripts/watcher-env/bin/python3
-SERVER_PYTHON=/Users/waldo.vanderhaeghen/Library/Scripts/entertainment-env/bin/python3
+
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Use venv if present, otherwise fall back to system python3
+if [ -f "$DIR/.venv/bin/python3" ]; then
+  PYTHON="$DIR/.venv/bin/python3"
+  UVICORN="$DIR/.venv/bin/uvicorn"
+else
+  PYTHON="python3"
+  UVICORN="uvicorn"
+fi
+
 if [[ "$1" == "--serve" ]]; then
-  echo "Starting entertainment server → http://localhost:8000"
-  cd "$DIR" && /Users/waldo.vanderhaeghen/Library/Scripts/entertainment-env/bin/uvicorn server:app --reload
+  echo "Starting Observatory → http://localhost:8000"
+  cd "$DIR" && "$UVICORN" server:app --reload
   exit 0
 fi
 
-$PYTHON "$DIR/scripts/ingest_books.py"
-[ -f "$DIR/data/raw/imdb_ratings.csv" ] && $PYTHON "$DIR/scripts/ingest_films.py"
-[ -f "$DIR/data/raw/netflix_viewing.csv" ] && $PYTHON "$DIR/scripts/ingest_netflix.py"
+echo "→ Ingesting books (Goodreads)…"
+"$PYTHON" "$DIR/scripts/ingest_books.py"
+
+[ -f "$DIR/data/raw/imdb_ratings.csv" ] && {
+  echo "→ Ingesting films (IMDB)…"
+  "$PYTHON" "$DIR/scripts/ingest_films.py"
+}
+
+[ -f "$DIR/data/raw/netflix_viewing.csv" ] && {
+  echo "→ Ingesting Netflix…"
+  "$PYTHON" "$DIR/scripts/ingest_netflix.py"
+}
+
+[ -f "$DIR/data/raw/justwatch_seen.csv" ] || [ -f "$DIR/data/raw/justwatch_liked.csv" ] && {
+  echo "→ Ingesting JustWatch…"
+  "$PYTHON" "$DIR/scripts/ingest_justwatch.py"
+}
+
+ls "$DIR"/data/raw/spotify_streaming_audio_*.json &>/dev/null && {
+  echo "→ Ingesting Spotify…"
+  "$PYTHON" "$DIR/scripts/ingest_spotify.py"
+}
+
+[ -f "$DIR/data/raw/audible_extra.json" ] && {
+  echo "→ Ingesting Audible…"
+  "$PYTHON" "$DIR/scripts/ingest_audible.py"
+}
 
 if [[ "$1" == "--refresh" ]]; then
-  echo "Note: build_profile.py requires ANTHROPIC_API_KEY or re-run via Claude Code."
-  $PYTHON "$DIR/scripts/build_profile.py" --refresh
+  echo "→ Building AI taste profile (requires ANTHROPIC_API_KEY)…"
+  "$PYTHON" "$DIR/scripts/build_profile.py" --refresh
 fi
 
-$PYTHON "$DIR/scripts/build_dashboard.py"
+echo "→ Building dashboard…"
+"$PYTHON" "$DIR/scripts/build_dashboard.py"
 echo "Done → $DIR/dashboard.html"
+echo "Run './run.sh --serve' to start the server."
