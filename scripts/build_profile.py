@@ -124,6 +124,7 @@ Here is the user's complete rated media history (JSON):
 
 Produce a JSON object with exactly these keys:
 {{
+  "profile_summary": "2-4 sentences capturing the user's overall taste in one direct voice. Be specific: name genres, name reference titles, identify the recurring intellectual or emotional thread. No hedging. Example register: 'A reader drawn to ideas at civilizational scale — hard SF, morally complex power struggles, comic philosophy that takes itself seriously.'",
   "genre_fingerprint": {{"genre_name": 0.0_to_1.0, ...}},
   "film_genre_fingerprint": {{"genre_name": 0.0_to_1.0, ...}},
   "top_themes": ["narrative/thematic theme 1", ...],
@@ -135,6 +136,7 @@ Produce a JSON object with exactly these keys:
 }}
 
 Rules:
+- profile_summary: direct, specific, no hedging. 2-4 sentences max.
 - genre_fingerprint: books only. Score 0-1. Include 8-12 genres. Use names like "Hard Science Fiction", "Comic Fantasy", "Epic Fantasy".
 - film_genre_fingerprint: films and TV only. Score 0-1. Include 8-12 genres. Use cinema genre names like "Science Fiction", "Drama", "Thriller", "Action", "Historical", "Comedy", "Documentary".
 - top_themes: 4-6 narrative/thematic patterns that appear across both books AND films (transcend medium).
@@ -143,9 +145,10 @@ Rules:
 - top_directors: all directors with 2+ rated films, sorted by avg_rating desc.
 - Return ONLY the JSON object."""
 
-    return _call_json(client, prompt, max_tokens=2000,
+    return _call_json(client, prompt, max_tokens=2500,
                       required_keys=["genre_fingerprint", "top_themes", "rating_calibration",
-                                     "taste_clusters", "dislikes_pattern", "top_authors"])
+                                     "taste_clusters", "dislikes_pattern", "top_authors",
+                                     "profile_summary"])
 
 
 def generate_recommendations(client: anthropic.Anthropic, profile: dict,
@@ -158,7 +161,7 @@ The user's taste profile:
 Titles already consumed (do NOT recommend these):
 {json.dumps(sorted(consumed_titles))}
 
-Recommend exactly: 8 books, 6 films, and 4 TV shows this user is most likely to rate 5 stars.
+Recommend exactly: 25 books, 15 films, and 10 TV shows this user is most likely to rate 5 stars.
 Return a JSON array where each item has exactly:
 {{
   "media_type": "book" | "film" | "tv_show",
@@ -177,10 +180,50 @@ Rules:
 - Match their highest-rated titles' energy, not their average.
 - Return ONLY the JSON array."""
 
-    result = _call_json(client, prompt, max_tokens=3000, required_keys=[])
+    result = _call_json(client, prompt, max_tokens=6000, required_keys=[])
     if isinstance(result, list):
         return result
-    # Defensive: if Claude wrapped the array in a dict key
+    for v in result.values():
+        if isinstance(v, list):
+            return v
+    return []
+
+
+def generate_recommendations_extended(client: anthropic.Anthropic, profile: dict,
+                                      consumed_titles: set[str]) -> list[dict]:
+    """Generate music, podcast, and comics recommendations (no TMDB tokens)."""
+    prompt = f"""You are a personal media recommendation engine for music, podcasts, and comics/graphic novels.
+
+The user's taste profile:
+{json.dumps(profile, indent=2)}
+
+Known consumed titles (do NOT recommend these):
+{json.dumps(sorted(list(consumed_titles)[:200]))}
+
+Recommend:
+- Exactly 10 music albums or artists (based on their Spotify listening history showing trance/electronic/ambient affinity, plus their intellectual taste profile)
+- Exactly 10 podcasts (matching their intellectual interests: hard science, civilizational thinking, morally complex narratives, long-form ideas)
+- Exactly 10 comics/graphic novels (matching their literary taste for complex narratives and visual storytelling)
+
+Return a JSON array where each item has exactly:
+{{
+  "media_type": "music" | "podcast" | "comic",
+  "title": "album or artist name | podcast title | comic/graphic novel title",
+  "author_or_director": "artist/band | publisher/host | author/artist",
+  "reason": "2 sentences grounded in their specific taste — reference their known preferences",
+  "potential_issue": "1 honest sentence on why they might not like it",
+  "confidence": 0.0_to_1.0
+}}
+
+Rules:
+- Real titles only. For music: prefer albums over artists when specific.
+- For podcasts: intellectual, long-form, evidence-based or narrative-driven — no entertainment gossip.
+- For comics: literary graphic novels or acclaimed series, not superhero mainstream.
+- Return ONLY the JSON array."""
+
+    result = _call_json(client, prompt, max_tokens=4000, required_keys=[])
+    if isinstance(result, list):
+        return result
     for v in result.values():
         if isinstance(v, list):
             return v
@@ -266,8 +309,11 @@ def main():
     consumed = {h["title"] for h in history}
     print(f"Generating recommendations (excluding {len(consumed)} consumed titles)…")
     recs = generate_recommendations(client, cached, consumed)
-    print(f"Got {len(recs)} recommendations")
-    store_recommendations(conn, recs)
+    print(f"Got {len(recs)} book/film/TV recommendations")
+    print("Generating music/podcast/comics recommendations…")
+    recs_extended = generate_recommendations_extended(client, cached, consumed)
+    print(f"Got {len(recs_extended)} music/podcast/comics recommendations")
+    store_recommendations(conn, recs + recs_extended)
 
     if not (args.refresh or args.refresh_recs):
         save_cache(cache_key, cached, recs)

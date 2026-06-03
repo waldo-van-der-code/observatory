@@ -156,9 +156,89 @@ async def _search_openlibrary(client: httpx.AsyncClient, query: str,
     return results
 
 
+async def _search_musicbrainz(client: httpx.AsyncClient, query: str,
+                              existing_ids: set[str]) -> list[dict]:
+    headers = {"User-Agent": "EntertainmentDashboard/1.0 (personal project)"}
+    params = {"query": query, "fmt": "json", "limit": 8}
+    try:
+        r = await client.get("https://musicbrainz.org/ws/2/artist", params=params, headers=headers)
+        if r.status_code != 200:
+            return []
+        items = []
+        for it in r.json().get("artists", [])[:6]:
+            mb_id = it.get("id", "")
+            db_id = f"mb:artist:{mb_id}"
+            if db_id in existing_ids:
+                continue
+            name = it.get("name", "")
+            tags = [t["name"] for t in (it.get("tags") or [])[:3]]
+            items.append({
+                "id": db_id,
+                "source": "musicbrainz",
+                "source_id": mb_id,
+                "media_type": "music",
+                "title": name,
+                "subtitle": " · ".join(tags) if tags else it.get("disambiguation", ""),
+                "author": None,
+                "director": None,
+                "year": None,
+                "genres": tags,
+                "description": it.get("disambiguation", ""),
+                "cover_url": "",
+                "imdb_id": None,
+                "watchlist": False,
+                "rating": None,
+            })
+        return items
+    except Exception:
+        return []
+
+
+async def _search_itunes_podcast(client: httpx.AsyncClient, query: str,
+                                  existing_ids: set[str]) -> list[dict]:
+    try:
+        r = await client.get(
+            "https://itunes.apple.com/search",
+            params={"term": query, "media": "podcast", "entity": "podcast", "limit": 8}
+        )
+        if r.status_code != 200:
+            return []
+        items = []
+        for it in r.json().get("results", [])[:6]:
+            pod_id = str(it.get("collectionId", ""))
+            db_id = f"itunes:podcast:{pod_id}"
+            if db_id in existing_ids:
+                continue
+            title = it.get("collectionName", "")
+            artist = it.get("artistName", "")
+            genres = it.get("genres", [])
+            cover = it.get("artworkUrl100", "").replace("100x100", "300x300")
+            episode_count = it.get("trackCount", 0)
+            items.append({
+                "id": db_id,
+                "source": "itunes",
+                "source_id": pod_id,
+                "media_type": "podcast",
+                "title": title,
+                "subtitle": artist + (f" · {episode_count} ep." if episode_count else ""),
+                "author": artist,
+                "director": None,
+                "year": None,
+                "genres": genres[:3],
+                "description": "",
+                "cover_url": cover,
+                "imdb_id": None,
+                "watchlist": False,
+                "rating": None,
+            })
+        return items
+    except Exception:
+        return []
+
+
 async def search(query: str, media_type: str = "all",
                  existing_ids: set[str] | None = None) -> list[dict]:
-    """Fan out to TMDB and/or Open Library in parallel; return unified results."""
+    """Fan out to TMDB, Open Library, MusicBrainz, and iTunes in parallel."""
     if existing_ids is None:
         existing_ids = set()
 
@@ -171,6 +251,10 @@ async def search(query: str, media_type: str = "all",
             tasks.append(_search_tmdb(client, api_key, query, media_type, existing_ids))
         if media_type in ("all", "book"):
             tasks.append(_search_openlibrary(client, query, existing_ids))
+        if media_type in ("music",):
+            tasks.append(_search_musicbrainz(client, query, existing_ids))
+        if media_type in ("podcast",):
+            tasks.append(_search_itunes_podcast(client, query, existing_ids))
 
         results_nested = await asyncio.gather(*tasks, return_exceptions=True)
 

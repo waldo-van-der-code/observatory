@@ -18,28 +18,31 @@ def load_dismissed() -> set[int]:
     return set()
 
 
-def svg_bar_chart(data: dict[str, float], color: str = "#58a6ff",
-                  max_width: int = 340, bar_h: int = 22, gap: int = 6) -> str:
+def svg_bar_chart(data: dict[str, float], color: str = "#1a4fa0",
+                  bar_h: int = 20, gap: int = 6, onclick: str = "") -> str:
     if not data:
         return "<p class='dim'>No data yet.</p>"
     items = sorted(data.items(), key=lambda x: x[1], reverse=True)[:12]
     max_val = max(v for _, v in items) or 1
     rows = []
     for label, val in items:
-        w = int(val / max_val * max_width)
+        pct_width = round(val / max_val * 100, 1)
         pct = f"{val:.0%}" if val <= 1 else f"{val:.1f}"
+        safe = label.replace("'", "\\'")
+        click_attr = f' onclick="{onclick.format(safe=safe)}" style="cursor:pointer"' if onclick else ""
         rows.append(
             f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:{gap}px">'
-            f'<div style="width:160px;font-size:12px;text-align:right;color:#8b949e;white-space:nowrap;'
-            f'overflow:hidden;text-overflow:ellipsis">{label}</div>'
-            f'<div style="width:{w}px;height:{bar_h}px;background:{color};border-radius:3px"></div>'
-            f'<div style="font-size:12px;color:#e6edf3">{pct}</div>'
+            f'<div style="width:160px;font-size:12px;text-align:right;color:var(--text-dim);white-space:nowrap;'
+            f'overflow:hidden;text-overflow:ellipsis;flex-shrink:0"{click_attr}>{label}</div>'
+            f'<div style="flex:1;height:{bar_h}px;background:rgba(26,22,18,0.1);border-radius:2px;overflow:hidden">'
+            f'<div style="width:{pct_width}%;height:100%;background:{color};border-radius:2px"></div></div>'
+            f'<div style="font-size:12px;font-weight:600;color:var(--text);width:44px;flex-shrink:0;text-align:right">{pct}</div>'
             f'</div>'
         )
     return "\n".join(rows)
 
 
-def svg_rating_histogram(ratings: list[float], color: str = "#3fb950") -> str:
+def svg_rating_histogram(ratings: list[float], color: str = "#1a4fa0") -> str:
     if not ratings:
         return "<p class='dim'>No ratings yet.</p>"
     buckets = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
@@ -52,9 +55,9 @@ def svg_rating_histogram(ratings: list[float], color: str = "#3fb950") -> str:
         h = max(4, int(count / max_v * 80))
         bars.append(
             f'<div style="display:flex;flex-direction:column;align-items:center;gap:4px">'
-            f'<div style="font-size:11px;color:#8b949e">{count}</div>'
-            f'<div style="width:32px;height:{h}px;background:{color};border-radius:3px 3px 0 0"></div>'
-            f'<div style="font-size:12px;color:#e6edf3">{"★"*star}</div>'
+            f'<div style="font-size:11px;color:var(--text-dim);font-weight:600">{count}</div>'
+            f'<div style="width:32px;height:{h}px;background:{color};border-radius:2px 2px 0 0"></div>'
+            f'<div style="font-size:12px;color:var(--gold)">{"★"*star}</div>'
             f'</div>'
         )
     return f'<div style="display:flex;align-items:flex-end;gap:8px;height:120px;padding-top:16px">{"".join(bars)}</div>'
@@ -67,7 +70,7 @@ def render(conn) -> str:
     stats = conn.execute("""
         SELECT
           sum(case when m.media_type='book' then 1 end) books,
-          sum(case when m.media_type='audiobook' then 1 end) audiobooks,
+          (SELECT count(DISTINCT media_id) FROM user_interactions WHERE source='audible') audiobooks,
           sum(case when m.media_type in ('film','movie') then 1 end) films,
           sum(case when m.media_type='tv_show' then 1 end) shows,
           sum(case when m.media_type in ('film','movie','tv_show')
@@ -94,9 +97,17 @@ def render(conn) -> str:
             "top_directors": json.loads(profile_row["top_directors"] or "[]"),
         }
 
+    # Titles already rated or consumed — exclude from recommendations
+    consumed_titles = {
+        row["title"].lower() for row in conn.execute(
+            "SELECT DISTINCT m.title FROM media_items m "
+            "JOIN user_interactions ui ON ui.media_id=m.id "
+            "WHERE ui.rating IS NOT NULL OR ui.interaction IN ('completed','read')"
+        ).fetchall()
+    }
     recs_raw = [dict(r) for r in conn.execute(
         "SELECT * FROM recommendations WHERE status='pending' ORDER BY confidence DESC"
-    ).fetchall() if r["id"] not in dismissed]
+    ).fetchall() if r["id"] not in dismissed and r["title"].lower() not in consumed_titles]
     # Enrich with year from media_items where available
     for r in recs_raw:
         row = conn.execute(
@@ -130,11 +141,102 @@ def render(conn) -> str:
     """).fetchall()
 
     generated = profile_row["generated_at"][:10] if profile_row else "—"
+    profile_summary = ""
+    if profile_row:
+        raw = json.loads(profile_row["raw_response"] or "{}")
+        profile_summary = raw.get("profile_summary", "")
 
     film_ratings = [r["rating"] for r in conn.execute(
         "SELECT rating FROM user_interactions WHERE rating IS NOT NULL "
         "AND source IN ('imdb','justwatch_liked')"
     ).fetchall()]
+
+    # ── Films & series KPIs ───────────────────────────────────────────────────
+    film_series_counts = conn.execute("""
+        SELECT m.media_type, count(*) cnt
+        FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+        WHERE m.media_type IN ('film','movie','tv_show') AND ui.interaction='completed'
+        GROUP BY m.media_type
+    """).fetchall()
+    n_films  = sum(r["cnt"] for r in film_series_counts if r["media_type"] in ("film","movie"))
+    n_series = sum(r["cnt"] for r in film_series_counts if r["media_type"] == "tv_show")
+
+    films_by_year = conn.execute("""
+        SELECT substr(ui.date_completed,1,4) yr, count(*) cnt
+        FROM user_interactions ui JOIN media_items m ON m.id=ui.media_id
+        WHERE m.media_type IN ('film','movie') AND ui.interaction='completed'
+          AND ui.date_completed IS NOT NULL AND substr(ui.date_completed,1,4) >= '2015'
+        GROUP BY yr ORDER BY yr
+    """).fetchall()
+
+    series_by_year = conn.execute("""
+        SELECT substr(ui.date_completed,1,4) yr, count(*) cnt
+        FROM user_interactions ui JOIN media_items m ON m.id=ui.media_id
+        WHERE m.media_type='tv_show' AND ui.interaction='completed'
+          AND ui.date_completed IS NOT NULL AND substr(ui.date_completed,1,4) >= '2015'
+        GROUP BY yr ORDER BY yr
+    """).fetchall()
+
+    films_by_decade = conn.execute("""
+        SELECT (m.year/10)*10 decade, count(*) cnt
+        FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+        WHERE m.media_type IN ('film','movie') AND m.year IS NOT NULL
+          AND ui.interaction='completed'
+        GROUP BY decade ORDER BY decade
+    """).fetchall()
+
+    # User rating distribution for films (1–5 stars)
+    film_user_rating_dist = conn.execute("""
+        SELECT round(ui.rating) stars, count(*) cnt
+        FROM user_interactions ui JOIN media_items m ON m.id=ui.media_id
+        WHERE m.media_type IN ('film','movie') AND ui.rating IS NOT NULL
+        GROUP BY stars ORDER BY stars
+    """).fetchall()
+
+    # ── Books KPIs ────────────────────────────────────────────────────────────
+    book_series_counts = conn.execute("""
+        SELECT CASE WHEN series_name IS NOT NULL THEN 'series' ELSE 'standalone' END kind,
+               count(*) cnt
+        FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+        WHERE m.media_type='book' AND ui.shelf='read'
+        GROUP BY kind
+    """).fetchall()
+
+    book_page_buckets = conn.execute("""
+        SELECT CASE
+          WHEN page_count IS NULL THEN 'Unknown'
+          WHEN page_count < 200   THEN '< 200p'
+          WHEN page_count < 350   THEN '200–350p'
+          WHEN page_count < 500   THEN '350–500p'
+          ELSE '500p +'
+        END bucket,
+        count(*) cnt
+        FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+        WHERE m.media_type='book' AND ui.shelf='read'
+        GROUP BY bucket
+        ORDER BY min(coalesce(page_count, 0))
+    """).fetchall()
+
+    book_by_decade = conn.execute("""
+        SELECT (m.year/10)*10 decade, count(*) cnt
+        FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+        WHERE m.media_type='book' AND m.year IS NOT NULL AND ui.shelf='read'
+        GROUP BY decade ORDER BY decade
+    """).fetchall()
+
+    book_avg_pages = conn.execute("""
+        SELECT round(avg(page_count)) avg_p, max(page_count) max_p
+        FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+        WHERE m.media_type='book' AND page_count IS NOT NULL AND ui.shelf='read'
+    """).fetchone()
+
+    # ── Podcasts ──────────────────────────────────────────────────────────────
+    podcasts = conn.execute("""
+        SELECT m.title, ui.rating
+        FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+        WHERE m.media_type='podcast' AND ui.interaction='completed'
+        ORDER BY ui.rating DESC NULLS LAST, m.title
+    """).fetchall()
 
     # ── Comics ───────────────────────────────────────────────────────────────
     comic_total = conn.execute(
@@ -162,30 +264,30 @@ def render(conn) -> str:
         ORDER BY title
     """).fetchall()
 
-    # ── Netflix ───────────────────────────────────────────────────────────────
-    netflix_shows = conn.execute("""
-        SELECT m.title, ui.date_completed
+    # ── Films & Series (all sources) ──────────────────────────────────────────
+    recent_shows = conn.execute("""
+        SELECT m.title, m.source, ui.date_completed
         FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
-        WHERE m.source='netflix' AND m.media_type='tv_show' AND ui.interaction='completed'
-        ORDER BY ui.date_completed DESC LIMIT 15
+        WHERE m.media_type='tv_show' AND ui.interaction='completed'
+        ORDER BY ui.date_completed DESC LIMIT 20
     """).fetchall()
-    netflix_films = conn.execute("""
-        SELECT m.title, ui.date_completed
+    recent_films = conn.execute("""
+        SELECT m.title, m.source, ui.date_completed
         FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
-        WHERE m.source='netflix' AND m.media_type='film' AND ui.interaction='completed'
-        ORDER BY ui.date_completed DESC LIMIT 15
+        WHERE m.media_type IN ('film','movie') AND ui.interaction='completed'
+        ORDER BY ui.date_completed DESC LIMIT 20
     """).fetchall()
-    netflix_counts = conn.execute("""
+    all_counts = conn.execute("""
         SELECT
           sum(case when m.media_type='tv_show' then 1 end) shows,
-          sum(case when m.media_type='film' then 1 end) films
+          sum(case when m.media_type IN ('film','movie') then 1 end) films
         FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
-        WHERE m.source='netflix' AND ui.interaction='completed'
+        WHERE ui.interaction='completed'
     """).fetchone()
-    netflix_rated = conn.execute("""
-        SELECT m.title, ui.rating
+    recent_rated = conn.execute("""
+        SELECT m.title, m.media_type, ui.rating
         FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
-        WHERE m.source='netflix' AND ui.interaction='rated'
+        WHERE m.media_type IN ('film','movie','tv_show') AND ui.interaction='rated'
         ORDER BY ui.date_completed DESC LIMIT 20
     """).fetchall()
 
@@ -215,17 +317,37 @@ def render(conn) -> str:
             GROUP BY yr ORDER BY yr
         """).fetchall()
 
-    top_directors = profile.get("top_directors", [])
-    directors_html = ""
-    for d in top_directors[:8]:
-        avg = f'{d["avg_rating"]:.1f}' if d.get("avg_rating") else "—"
-        directors_html += f'<tr><td>{d["name"]}</td><td>{d.get("count","")}</td><td>{avg}★</td></tr>'
+    # Directors queried live from DB (2+ rated films)
+    top_directors_by_rating = conn.execute("""
+        SELECT m.director, count(*) cnt, avg(ui.rating) avg_r
+        FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+        WHERE m.director IS NOT NULL AND ui.rating IS NOT NULL
+          AND m.media_type IN ('film','movie')
+        GROUP BY m.director HAVING count(*) >= 2
+        ORDER BY avg_r DESC, cnt DESC LIMIT 10
+    """).fetchall()
+    top_directors_by_count = conn.execute("""
+        SELECT m.director, count(*) cnt, avg(ui.rating) avg_r
+        FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+        WHERE m.director IS NOT NULL AND ui.rating IS NOT NULL
+          AND m.media_type IN ('film','movie')
+        GROUP BY m.director HAVING count(*) >= 4
+        ORDER BY cnt DESC, avg_r DESC LIMIT 10
+    """).fetchall()
+    def _dir_row(d):
+        name = d["director"].replace("'", "\\'")
+        return (f'<tr><td><span style="cursor:pointer;color:var(--cobalt)" '
+                f'onclick="showDirectorDetail(\'{name}\')">{d["director"]}</span></td>'
+                f'<td>{d["cnt"]}</td><td>{d["avg_r"]:.1f}★</td></tr>')
+
+    directors_by_rating_html = "".join(_dir_row(d) for d in top_directors_by_rating)
+    directors_by_count_html  = "".join(_dir_row(d) for d in top_directors_by_count)
 
     # ── Genre chart ───────────────────────────────────────────────────────────
-    genre_chart = svg_bar_chart(profile.get("genre_fingerprint", {}))
-    film_genre_chart = svg_bar_chart(profile.get("film_genre_fingerprint", {}), color="#f0883e")
+    genre_chart = svg_bar_chart(profile.get("genre_fingerprint", {}), color="#1a4fa0")
+    film_genre_chart = svg_bar_chart(profile.get("film_genre_fingerprint", {}), color="#c94c1a")
     rating_hist = svg_rating_histogram(book_ratings)
-    film_rating_hist = svg_rating_histogram(film_ratings, color="#f0883e")
+    film_rating_hist = svg_rating_histogram(film_ratings, color="#c94c1a")
 
     # ── Series tracker ────────────────────────────────────────────────────────
     series_html = ""
@@ -254,7 +376,8 @@ def render(conn) -> str:
 
     # ── Spotify HTML ──────────────────────────────────────────────────────────
     spotify_artists_html = svg_bar_chart(
-        {r["artist"]: r["plays"] for r in spotify_top_artists}, color="#1db954"
+        {r["artist"]: r["plays"] for r in spotify_top_artists}, color="#0d7e6b",
+        onclick="showArtistDetail('{safe}')"
     ) if spotify_top_artists else "<p class='dim'>No Spotify data yet.</p>"
 
     spotify_year_rows = ""
@@ -267,6 +390,104 @@ def render(conn) -> str:
     spotify_total_plays = f'{spotify_stats["total_plays"]:,}'
     spotify_total_hours = f'{spotify_stats["total_hours"]:.0f}'
     spotify_total_artists = f'{spotify_stats["total_artists"]:,}'
+
+    # ── Music deep-dive data ──────────────────────────────────────────────────
+    top_tracks = []
+    top_albums = []
+    artist_sprint = {}  # yr -> list of (artist, cnt)
+    if spotify_exists:
+        top_tracks = conn.execute("""
+            SELECT track, artist, count(*) plays
+            FROM spotify_plays
+            WHERE artist IS NOT NULL AND track IS NOT NULL
+              AND artist != 'sleep-o-phant'
+            GROUP BY track, artist ORDER BY plays DESC LIMIT 10
+        """).fetchall()
+        top_albums = conn.execute("""
+            SELECT album, artist, count(*) plays
+            FROM spotify_plays
+            WHERE album IS NOT NULL AND artist != 'sleep-o-phant'
+            GROUP BY album ORDER BY plays DESC LIMIT 10
+        """).fetchall()
+        sprint_rows = conn.execute("""
+            WITH ranked AS (
+              SELECT substr(ended_at,1,4) yr, artist, count(*) cnt,
+                     row_number() OVER (PARTITION BY substr(ended_at,1,4) ORDER BY count(*) DESC) rn
+              FROM spotify_plays
+              WHERE artist IS NOT NULL AND artist != 'sleep-o-phant'
+                AND substr(ended_at,1,4) BETWEEN '2018' AND '2026'
+              GROUP BY yr, artist
+            )
+            SELECT yr, artist, cnt FROM ranked WHERE rn <= 5 ORDER BY yr, rn
+        """).fetchall()
+        for r in sprint_rows:
+            artist_sprint.setdefault(r["yr"], []).append((r["artist"], r["cnt"]))
+
+    # ── Music HTML ────────────────────────────────────────────────────────────
+    top_tracks_html = ""
+    for i, r in enumerate(top_tracks, 1):
+        top_tracks_html += (
+            f'<div style="display:flex;align-items:baseline;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">'
+            f'<span style="font-size:11px;font-weight:700;color:var(--text-dim);width:16px;flex-shrink:0">{i}</span>'
+            f'<div style="flex:1;min-width:0">'
+            f'<div style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{r["track"]}</div>'
+            f'<div style="font-size:11px;color:var(--text-dim)">{r["artist"]}</div>'
+            f'</div>'
+            f'<span style="font-size:12px;font-weight:600;color:var(--accent-music);flex-shrink:0">{r["plays"]:,}</span>'
+            f'</div>'
+        )
+
+    top_albums_html = ""
+    for i, r in enumerate(top_albums, 1):
+        top_albums_html += (
+            f'<div style="display:flex;align-items:baseline;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">'
+            f'<span style="font-size:11px;font-weight:700;color:var(--text-dim);width:16px;flex-shrink:0">{i}</span>'
+            f'<div style="flex:1;min-width:0">'
+            f'<div style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{r["album"]}</div>'
+            f'<div style="font-size:11px;color:var(--text-dim)">{r["artist"]}</div>'
+            f'</div>'
+            f'<span style="font-size:12px;font-weight:600;color:var(--accent-music);flex-shrink:0">{r["plays"]:,}</span>'
+            f'</div>'
+        )
+
+    # Artist sprint: year-by-year top 5 as a ranked table
+    sprint_years = sorted(artist_sprint.keys())
+    sprint_html = ""
+    if sprint_years:
+        sprint_html += '<div style="overflow-x:auto"><table style="min-width:500px">'
+        sprint_html += '<tr><th style="width:48px">Year</th>'
+        for rank in range(1, 6):
+            sprint_html += f'<th>#{rank}</th>'
+        sprint_html += '</tr>'
+        for yr in sprint_years:
+            artists = artist_sprint.get(yr, [])
+            sprint_html += f'<tr><td style="font-weight:700;color:var(--text)">{yr}</td>'
+            for rank in range(5):
+                if rank < len(artists):
+                    name, cnt = artists[rank]
+                    color = "var(--accent-music)" if rank == 0 else "var(--text)"
+                    safe_name = name.replace("'", "\\'")
+                    sprint_html += f'<td style="color:{color};font-size:12px;cursor:pointer" onclick="showArtistDetail(\'{safe_name}\')">{name}<span style="color:var(--text-dim);font-size:10px;margin-left:4px">{cnt:,}</span></td>'
+                else:
+                    sprint_html += '<td></td>'
+            sprint_html += '</tr>'
+        sprint_html += '</table></div>'
+
+    # ── Podcasts HTML ─────────────────────────────────────────────────────────
+    HUGE_FAN = {"99% Invisible", "The Moth", "Life in Scents", "Snap Judgment",
+                "Serial", "Radiolab", "Love and Radio", "Science Vs",
+                "Reply All", "Rough Translation", "Strangers", "Hidden Brain",
+                "Dolly Parton's America"}
+    podcasts_html = ""
+    for p in podcasts:
+        stars = "★" * int(p["rating"] or 0) if p["rating"] else "—"
+        tag = " · <span style='font-size:11px;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:.06em'>Huge fan</span>" if p["title"] in HUGE_FAN else ""
+        podcasts_html += (
+            f'<div class="series-row" style="align-items:center">'
+            f'<span class="series-name">{p["title"]}{tag}</span>'
+            f'<span style="color:var(--gold);font-size:13px">{stars}</span>'
+            f'</div>'
+        )
 
     # ── Comics HTML ───────────────────────────────────────────────────────────
     comic_series_html = ""
@@ -291,21 +512,25 @@ def render(conn) -> str:
             f'<td class="dim">{a["year"] or ""}</td></tr>'
         )
 
-    # ── Netflix HTML ──────────────────────────────────────────────────────────
-    def nf_row(title: str, date: str) -> str:
-        d = date[:7] if date else ""  # YYYY-MM
-        return f'<tr><td>{title}</td><td class="dim">{d}</td></tr>'
+    # ── Films & Series HTML ───────────────────────────────────────────────────
+    def media_row(title: str, date: str, media_type: str = "film") -> str:
+        d = date[:7] if date else ""
+        safe = title.replace("'", "\\'")
+        mt = "tv" if media_type == "tv_show" else ("book" if media_type == "book" else "film")
+        return (f'<tr><td><span style="cursor:pointer;color:var(--cobalt)" '
+                f'onclick="searchAndShowDetail(\'{safe}\',\'{mt}\')">{title}</span></td>'
+                f'<td class="dim">{d}</td></tr>')
 
-    netflix_shows_html = "".join(nf_row(r["title"], r["date_completed"]) for r in netflix_shows) \
+    recent_shows_html = "".join(media_row(r["title"], r["date_completed"], "tv_show") for r in recent_shows) \
         or "<tr><td class='dim' colspan='2'>No data</td></tr>"
-    netflix_films_html = "".join(nf_row(r["title"], r["date_completed"]) for r in netflix_films) \
+    recent_films_html = "".join(media_row(r["title"], r["date_completed"], "film") for r in recent_films) \
         or "<tr><td class='dim' colspan='2'>No data</td></tr>"
-    netflix_rated_html = ""
-    for r in netflix_rated:
+    recent_rated_html = ""
+    for r in recent_rated:
         stars = "👍" if (r["rating"] or 0) >= 3.5 else "👎"
-        netflix_rated_html += f'<tr><td>{r["title"]}</td><td>{stars}</td></tr>'
-    netflix_total_shows = netflix_counts["shows"] or 0
-    netflix_total_films = netflix_counts["films"] or 0
+        recent_rated_html += f'<tr><td>{r["title"]}</td><td>{stars}</td></tr>'
+    total_shows = all_counts["shows"] or 0
+    total_films = all_counts["films"] or 0
 
     # ── Themes + Dislikes ─────────────────────────────────────────────────────
     cal = profile.get("rating_calibration", {})
@@ -316,9 +541,19 @@ def render(conn) -> str:
     def rec_card(r: dict) -> str:
         rid = r["id"]
         conf_pct = int(r.get("confidence", 0) * 100)
-        badge = "📺" if r["media_type"] == "tv_show" else ("🎬" if r["media_type"] == "film" else "📖")
-        wl_label = "Want to watch" if r["media_type"] in ("film", "tv_show") else "Want to read"
-        api_type = "tv" if r["media_type"] == "tv_show" else ("film" if r["media_type"] == "film" else "book")
+        mt = r["media_type"]
+        if mt == "tv_show":
+            badge, wl_label, api_type = "📺", "Want to watch", "tv"
+        elif mt == "film":
+            badge, wl_label, api_type = "🎬", "Want to watch", "film"
+        elif mt == "music":
+            badge, wl_label, api_type = "🎵", "Want to listen", "music"
+        elif mt == "podcast":
+            badge, wl_label, api_type = "🎙️", "Follow", "podcast"
+        elif mt == "comic":
+            badge, wl_label, api_type = "🗯️", "Want to read", "book"
+        else:
+            badge, wl_label, api_type = "📖", "Want to read", "book"
         safe_title = r["title"].replace("'", "\\'").replace('"', '&quot;')
         stars = "".join(
             f'<span class="star" id="s-{rid}-{i}" onclick="rateRec({rid},{i})" '
@@ -326,7 +561,7 @@ def render(conn) -> str:
             for i in range(1, 6)
         )
         return (
-            f'<div class="card rec-card" id="rec-{rid}" style="cursor:pointer" onclick="searchAndShowDetail(\'{safe_title}\',\'{api_type}\')">'
+            f'<div class="card rec-card" id="rec-{rid}" style="cursor:pointer" data-title="{safe_title}" data-type="{api_type}" onclick="searchAndShowDetail(\'{safe_title}\',\'{api_type}\')">'
             f'<div class="rec-header">'
             f'<span class="rec-badge">{badge}</span>'
             f'<div class="rec-title-block">'
@@ -341,7 +576,7 @@ def render(conn) -> str:
             f'<div class="star-row" id="stars-{rid}">{stars}</div>'
             f'<span class="rated-badge" id="rated-{rid}" style="display:none"></span>'
             f'<button class="action-btn watchlist" id="wl-{rid}" onclick="toggleWatchlist({rid},this)">{wl_label}</button>'
-            f'<button class="action-btn detail-btn">Details ↗</button>'
+            f''
             f'<button class="action-btn dismiss" onclick="dismiss({rid})">Dismiss</button>'
             f'</div>'
             f'</div>'
@@ -361,6 +596,101 @@ def render(conn) -> str:
         series = f' <span class="dim">({b["series_name"]} #{int(b["series_pos"]) if b["series_pos"] else "?"})</span>' if b["series_name"] else ""
         to_read_html += f'<tr><td>{b["title"]}{series}</td><td class="dim">{b["author"] or ""}</td></tr>'
 
+    # ── Films KPI HTML ────────────────────────────────────────────────────────
+    total_screen = n_films + n_series
+    film_pct  = round(n_films  / total_screen * 100) if total_screen else 0
+    series_pct = round(n_series / total_screen * 100) if total_screen else 0
+
+    def inline_bar_chart(items, color, fmt=lambda v: str(v)):
+        """Horizontal bar chart from list of (label, value) tuples."""
+        if not items:
+            return "<p class='dim'>No data.</p>"
+        max_v = max(v for _, v in items) or 1
+        rows = []
+        for label, val in items:
+            w = round(val / max_v * 100, 1)
+            rows.append(
+                f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+                f'<div style="width:56px;font-size:11px;text-align:right;color:var(--text-dim);flex-shrink:0">{label}</div>'
+                f'<div style="flex:1;height:18px;background:rgba(26,22,18,0.1);border-radius:2px;overflow:hidden">'
+                f'<div style="width:{w}%;height:100%;background:{color};border-radius:2px"></div></div>'
+                f'<div style="font-size:11px;font-weight:600;color:var(--text);width:36px;flex-shrink:0;text-align:right">{fmt(val)}</div>'
+                f'</div>'
+            )
+        return "\n".join(rows)
+
+    # Films watched per year stacked chart (films + series side by side)
+    all_years = sorted(set([r["yr"] for r in films_by_year] + [r["yr"] for r in series_by_year]))
+    film_yr_map  = {r["yr"]: r["cnt"] for r in films_by_year}
+    series_yr_map = {r["yr"]: r["cnt"] for r in series_by_year}
+    max_yr_val = max((film_yr_map.get(y,0) + series_yr_map.get(y,0)) for y in all_years) if all_years else 1
+
+    watched_by_year_html = ""
+    for yr in all_years:
+        fc = film_yr_map.get(yr, 0)
+        sc = series_yr_map.get(yr, 0)
+        total = fc + sc
+        fw = round(fc / max_yr_val * 100, 1)
+        sw = round(sc / max_yr_val * 100, 1)
+        watched_by_year_html += (
+            f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">'
+            f'<div style="width:36px;font-size:11px;text-align:right;color:var(--text-dim);flex-shrink:0">{yr}</div>'
+            f'<div style="flex:1;height:16px;background:rgba(26,22,18,0.08);border-radius:2px;overflow:hidden;display:flex">'
+            f'<div style="width:{fw}%;height:100%;background:var(--accent-film)"></div>'
+            f'<div style="width:{sw}%;height:100%;background:var(--accent-book);opacity:0.7"></div>'
+            f'</div>'
+            f'<div style="font-size:11px;font-weight:600;color:var(--text);width:32px;flex-shrink:0;text-align:right">{total}</div>'
+            f'</div>'
+        )
+    watched_legend = (
+        f'<div style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:var(--text-dim)">'
+        f'<span><span style="display:inline-block;width:10px;height:10px;background:var(--accent-film);border-radius:1px;margin-right:4px"></span>Films</span>'
+        f'<span><span style="display:inline-block;width:10px;height:10px;background:var(--accent-book);opacity:0.7;border-radius:1px;margin-right:4px"></span>Series</span>'
+        f'</div>'
+    )
+
+    # Films by decade of release
+    decade_chart_html = inline_bar_chart(
+        [(f"{r['decade']}s", r["cnt"]) for r in films_by_decade],
+        color="var(--accent-film)"
+    )
+
+    # User rating distribution for films (1-5 stars)
+    film_user_stars = {int(r["stars"]): r["cnt"] for r in film_user_rating_dist if r["stars"]}
+    max_star_v = max(film_user_stars.values()) if film_user_stars else 1
+    user_rating_html = '<div style="display:flex;align-items:flex-end;gap:6px;height:80px;padding-top:12px">'
+    for s in range(1, 6):
+        cnt = film_user_stars.get(s, 0)
+        h = max(2, round(cnt / max_star_v * 64))
+        user_rating_html += (
+            f'<div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1">'
+            f'<div style="font-size:10px;color:var(--text-dim);font-weight:600">{cnt}</div>'
+            f'<div style="width:100%;height:{h}px;background:var(--accent-film);border-radius:2px 2px 0 0"></div>'
+            f'<div style="font-size:10px;color:var(--gold)">{"★"*s}</div>'
+            f'</div>'
+        )
+    user_rating_html += '</div>'
+
+    # ── Books KPI HTML ────────────────────────────────────────────────────────
+    n_series_books   = next((r["cnt"] for r in book_series_counts if r["kind"] == "series"), 0)
+    n_standalone_books = next((r["cnt"] for r in book_series_counts if r["kind"] == "standalone"), 0)
+    n_books_total = n_series_books + n_standalone_books
+    series_books_pct     = round(n_series_books     / n_books_total * 100) if n_books_total else 0
+    standalone_books_pct = round(n_standalone_books / n_books_total * 100) if n_books_total else 0
+
+    page_bucket_chart = inline_bar_chart(
+        [(r["bucket"], r["cnt"]) for r in book_page_buckets],
+        color="var(--accent-book)"
+    )
+
+    book_decade_chart = inline_bar_chart(
+        [(f"{r['decade']}s", r["cnt"]) for r in book_by_decade],
+        color="var(--accent-book)"
+    )
+
+    avg_pages = int(book_avg_pages["avg_p"]) if book_avg_pages and book_avg_pages["avg_p"] else "—"
+    max_pages = int(book_avg_pages["max_p"]) if book_avg_pages and book_avg_pages["max_p"] else "—"
+
     # ── Render ────────────────────────────────────────────────────────────────
     total_consumed = (stats["books"] or 0) + (stats["audiobooks"] or 0) + (stats["films"] or 0) + (stats["shows"] or 0)
     mean_str = f'{cal.get("mean","—")}'
@@ -373,117 +703,270 @@ def render(conn) -> str:
 <title>Entertainment Dashboard</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎷</text></svg>">
 <style>
+  :root {{
+    /* NASA Visions of the Future — cream + bold editorial */
+    --bg: #f2ede4;
+    --bg-panel: #faf7f2;
+    --bg-card: #f5f0e8;
+    --border: rgba(26,22,18,0.12);
+    --border-dark: rgba(26,22,18,0.25);
+    --text: #1a1612;
+    --text-dim: #6b5f57;
+    --rust:   #c94c1a;
+    --cobalt: #1a4fa0;
+    --gold:   #d4920a;
+    --teal:   #0d7e6b;
+    --crimson:#9b1c2e;
+    /* Section accents — one bold per domain */
+    --accent-film:     #c94c1a;
+    --accent-book:     #1a4fa0;
+    --accent-music:    #0d7e6b;
+    --accent-patterns: #7e3a8a;
+    --accent-recs:     #d4920a;
+    --search-h: 68px;
+  }}
   *, *::before, *::after {{ box-sizing:border-box; }}
-  body {{ background:#0d1117; color:#e6edf3; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; margin:0; padding:0; }}
-  .wrap {{ max-width:1000px; margin:0 auto; padding:0 24px 40px; }}
-  .panel {{ background:#161b22; border:1px solid #30363d; border-radius:10px; padding:20px; margin-bottom:20px; }}
-  .card {{ background:#1c2128; border:1px solid #30363d; border-radius:8px; padding:16px; margin-bottom:12px; }}
-  h1 {{ font-size:24px; font-weight:700; color:#e6edf3; margin-bottom:4px; }}
-  h2 {{ font-size:16px; font-weight:600; color:#58a6ff; margin-bottom:16px; text-transform:uppercase; letter-spacing:.05em; }}
-  h3 {{ font-size:14px; font-weight:600; color:#e6edf3; margin-bottom:8px; }}
-  .dim {{ color:#8b949e; font-size:13px; }}
+  body {{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    margin:0; padding:0;
+  }}
+  .wrap {{ max-width:1000px; margin:0 auto; padding:0 24px 80px; }}
+  .panel {{
+    background:var(--bg-panel);
+    border:1px solid var(--border);
+    border-radius:4px;
+    padding:20px;
+    margin-bottom:20px;
+    box-shadow:0 1px 4px rgba(26,22,18,0.06);
+  }}
+  .card {{
+    background:var(--bg-card);
+    border:1px solid var(--border);
+    border-radius:3px;
+    padding:16px;
+    margin-bottom:12px;
+  }}
+  h1 {{ font-size:28px; font-weight:800; color:var(--text); margin-bottom:4px; font-family:'Lora',Georgia,serif; letter-spacing:-.02em; }}
+  h2 {{ font-size:11px; font-weight:700; color:var(--text-dim); margin-bottom:16px; text-transform:uppercase; letter-spacing:.14em; }}
+  h3 {{ font-size:14px; font-weight:600; color:var(--text); margin-bottom:8px; }}
+  .dim {{ color:var(--text-dim); font-size:13px; }}
   .stat-bar {{ display:flex; gap:24px; margin-bottom:4px; flex-wrap:wrap; }}
-  .stat {{ text-align:center; }}
-  .stat-n {{ font-size:28px; font-weight:700; color:#58a6ff; }}
-  .stat-l {{ font-size:12px; color:#8b949e; }}
+  .stat {{ text-align:center; min-width:80px; }}
+  .stat-n {{ font-size:28px; font-weight:800; color:var(--cobalt); font-family:'Lora',serif; }}
+  .stat-l {{ font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.06em; }}
   .tabs {{ display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }}
-  .tab {{ padding:8px 16px; border-radius:6px; cursor:pointer; font-size:14px; border:1px solid #30363d; background:#1c2128; color:#8b949e; min-height:44px; display:flex; align-items:center; }}
+  .tab {{ padding:8px 16px; border-radius:6px; cursor:pointer; font-size:14px; border:1px solid var(--border); background:var(--bg-card); color:var(--text-dim); min-height:44px; display:flex; align-items:center; }}
   .tab.active {{ background:#1f6feb; color:#fff; border-color:#1f6feb; }}
   .tab-content {{ display:none; }}
   .tab-content.active {{ display:block; }}
-  .series-row {{ display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid #21262d; }}
-  .series-name {{ font-size:14px; color:#e6edf3; }}
-  .series-count {{ font-size:13px; color:#8b949e; }}
+  .series-row {{ display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); }}
+  .series-name {{ font-size:14px; color:var(--text); }}
+  .series-count {{ font-size:13px; color:var(--text-dim); }}
   .cluster-card {{ margin-bottom:12px; }}
-  .cluster-name {{ font-size:15px; font-weight:600; color:#f0883e; margin-bottom:6px; }}
-  .cluster-desc {{ font-size:13px; color:#8b949e; margin-bottom:8px; line-height:1.5; }}
-  .cluster-items {{ font-size:12px; color:#58a6ff; }}
+  .cluster-name {{ font-size:15px; font-weight:600; color:var(--accent-film); margin-bottom:6px; }}
+  .cluster-desc {{ font-size:13px; color:var(--text-dim); margin-bottom:8px; line-height:1.5; }}
+  .cluster-items {{ font-size:12px; color:var(--accent-book); }}
   .rec-card {{ position:relative; }}
   .rec-header {{ display:flex; align-items:flex-start; gap:10px; margin-bottom:8px; }}
   .rec-badge {{ font-size:20px; flex-shrink:0; }}
   .rec-title-block {{ flex:1; }}
-  .rec-title-block strong {{ font-size:15px; color:#e6edf3; }}
-  .rec-conf {{ font-size:13px; color:#3fb950; font-weight:600; flex-shrink:0; }}
-  .rec-reason {{ font-size:13px; color:#8b949e; margin-bottom:6px; line-height:1.5; }}
+  .rec-title-block strong {{ font-size:15px; color:var(--text); }}
+  .rec-conf {{ font-size:13px; color:var(--accent-recs); font-weight:600; flex-shrink:0; }}
+  .rec-reason {{ font-size:13px; color:var(--text-dim); margin-bottom:6px; line-height:1.5; }}
   .rec-friction {{ font-size:12px; color:#d29922; line-height:1.4; margin-bottom:10px; }}
   .rec-actions {{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }}
   .star-row {{ display:flex; gap:2px; }}
-  .star {{ font-size:18px; cursor:pointer; color:#30363d; transition:color .15s; line-height:1; padding:4px 2px; }}
-  .star.lit {{ color:#f0883e; }}
-  .star:hover {{ color:#f0883e; }}
-  .action-btn {{ font-size:13px; background:none; border:1px solid #30363d; border-radius:6px; padding:8px 14px; cursor:pointer; white-space:nowrap; min-height:36px; display:inline-flex; align-items:center; transition:all .15s; color:#8b949e; }}
-  .action-btn.watchlist {{ color:#58a6ff; border-color:#1f6feb55; }}
-  .action-btn.watchlist:hover {{ border-color:#58a6ff; background:#1f6feb22; }}
-  .action-btn.watchlist.saved {{ color:#3fb950; border-color:#3fb950; background:#3fb95022; }}
-  .action-btn.dismiss:hover {{ color:#f85149; border-color:#f85149; }}
-  .action-btn.detail-btn {{ color:#8b949e; }}
-  .action-btn.detail-btn:hover {{ color:#e6edf3; border-color:#58a6ff; }}
-  .rated-badge {{ font-size:12px; color:#f0883e; font-weight:600; }}
+  .star {{ font-size:18px; cursor:pointer; color:var(--border-light); transition:color .15s; line-height:1; padding:6px 4px; }}
+  .star.lit {{ color:var(--accent-film); }}
+  .star:hover {{ color:var(--accent-film); }}
+  .action-btn {{ font-size:12px; background:none; border:1px solid var(--border-dark); border-radius:2px; padding:7px 13px; cursor:pointer; white-space:nowrap; min-height:34px; display:inline-flex; align-items:center; transition:color .15s, border-color .15s, background .15s; color:var(--text-dim); letter-spacing:.03em; }}
+  .action-btn.watchlist {{ color:var(--cobalt); border-color:rgba(26,79,160,0.3); }}
+  .action-btn.watchlist:hover {{ border-color:var(--cobalt); background:rgba(26,79,160,0.08); }}
+  .action-btn.watchlist.saved {{ color:var(--teal); border-color:rgba(13,126,107,0.4); background:rgba(13,126,107,0.08); }}
+  .action-btn.dismiss:hover {{ color:var(--rust); border-color:rgba(201,76,26,0.4); }}
+  .action-btn.detail-btn {{ color:var(--text-dim); }}
+  .action-btn.detail-btn:hover {{ color:var(--gold); border-color:rgba(212,146,10,0.4); }}
+  .rated-badge {{ font-size:12px; color:var(--accent-film); font-weight:600; }}
   table {{ width:100%; border-collapse:collapse; }}
-  td, th {{ padding:10px; text-align:left; border-bottom:1px solid #21262d; font-size:13px; }}
-  th {{ color:#8b949e; font-weight:500; }}
-  li {{ margin-bottom:6px; font-size:13px; color:#8b949e; line-height:1.5; }}
+  td, th {{ padding:10px; text-align:left; border-bottom:1px solid var(--border); font-size:13px; }}
+  th {{ color:var(--text-dim); font-weight:500; }}
+  li {{ margin-bottom:6px; font-size:13px; color:var(--text-dim); line-height:1.5; }}
   .grid-2 {{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }}
   @media(max-width:700px) {{ .grid-2 {{ grid-template-columns:1fr; }} }}
-  #search-bar {{ position:sticky; top:0; z-index:100; background:#0d1117; border-bottom:1px solid #30363d; padding:12px 24px; margin:0 -24px 20px; }}
+  /* Search bar */
+  #search-bar {{ position:sticky; top:0; z-index:100; background:var(--cobalt); border-bottom:3px solid var(--gold); padding:10px 24px; margin:0 -24px 0; }}
   .search-row {{ max-width:1000px; margin:0 auto; display:flex; gap:8px; align-items:center; }}
-  #search-input {{ flex:1; background:#161b22; border:1px solid #30363d; border-radius:6px; padding:10px 14px; color:#e6edf3; font-size:14px; outline:none; min-height:44px; }}
-  #search-input:focus {{ border-color:#58a6ff; }}
-  #search-type {{ background:#161b22; border:1px solid #30363d; border-radius:6px; padding:10px; color:#e6edf3; font-size:13px; min-height:44px; }}
-  #search-btn {{ background:#1f6feb; border:none; border-radius:6px; padding:10px 18px; color:#fff; font-size:13px; cursor:pointer; white-space:nowrap; min-height:44px; font-weight:500; }}
-  #search-btn:hover {{ background:#388bfd; }}
-  #home-btn {{ display:none; background:none; border:1px solid #30363d; border-radius:6px; padding:10px 14px; color:#8b949e; font-size:13px; cursor:pointer; white-space:nowrap; min-height:44px; }}
-  #home-btn:hover {{ color:#e6edf3; border-color:#58a6ff; }}
-  .result-card {{ display:flex; gap:12px; background:#1c2128; border:1px solid #30363d; border-radius:8px; padding:14px; margin-bottom:10px; transition:border-color .15s; }}
-  .result-card:hover {{ border-color:#58a6ff44; }}
-  .result-cover {{ width:60px; height:88px; object-fit:cover; border-radius:4px; background:#21262d; flex-shrink:0; }}
-  .result-cover-ph {{ width:60px; height:88px; border-radius:4px; background:#21262d; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:22px; }}
+  #search-input {{ flex:1; background:rgba(255,255,255,0.15); border:2px solid rgba(255,255,255,0.3); border-radius:2px; padding:10px 14px; color:#fff; font-size:14px; outline:none; min-height:44px; transition:border-color .2s; }}
+  #search-input:focus {{ border-color:#fff; background:rgba(255,255,255,0.22); }}
+  #search-input::placeholder {{ color:rgba(255,255,255,0.55); }}
+  #search-type {{ background:rgba(255,255,255,0.12); border:2px solid rgba(255,255,255,0.25); border-radius:2px; padding:10px; color:#fff; font-size:13px; min-height:44px; }}
+  #search-btn {{ background:var(--gold); border:none; border-radius:2px; padding:10px 18px; color:var(--text); font-size:13px; cursor:pointer; white-space:nowrap; min-height:44px; font-weight:700; transition:opacity .15s; letter-spacing:.05em; text-transform:uppercase; }}
+  #search-btn:hover {{ opacity:.85; }}
+  #home-btn {{ display:none; background:none; border:2px solid rgba(255,255,255,0.3); border-radius:2px; padding:10px 14px; color:rgba(255,255,255,0.7); font-size:13px; cursor:pointer; white-space:nowrap; min-height:44px; transition:all .15s; }}
+  #home-btn:hover {{ color:#fff; border-color:#fff; }}
+  /* Section nav — top measured by JS at runtime */
+  #section-nav {{ position:sticky; top:var(--search-h); z-index:99; background:var(--bg); border-bottom:2px solid var(--border-dark); padding:0 24px; margin:0 -24px 24px; overflow-x:auto; scrollbar-width:none; }}
+  #section-nav::-webkit-scrollbar {{ display:none; }}
+  .snav-inner {{ max-width:1000px; margin:0 auto; display:flex; gap:0; padding:0; }}
+  .snav-link {{ padding:10px 16px; font-size:11px; font-weight:700; color:var(--text-dim); text-decoration:none; white-space:nowrap; transition:color .15s, border-bottom .15s; cursor:pointer; border-bottom:3px solid transparent; letter-spacing:.08em; text-transform:uppercase; display:inline-block; }}
+  .snav-link:hover {{ color:var(--text); }}
+  .snav-link.active {{ color:var(--rust); border-bottom-color:var(--rust); }}
+  /* Section anchors need scroll-margin to clear sticky bars */
+  #sec-overview, #sec-films, #sec-series, #sec-music-wrap, #sec-books, #sec-podcasts, #sec-comics, #sec-patterns, #sec-recs {{
+    scroll-margin-top: calc(var(--search-h) + 52px);
+  }}
+  .result-card {{ display:flex; gap:12px; background:var(--bg-card); border:1px solid var(--border); border-radius:3px; padding:14px; margin-bottom:10px; transition:border-color .15s, box-shadow .15s; }}
+  .result-card:hover {{ border-color:var(--cobalt); box-shadow:0 2px 8px rgba(26,22,18,0.1); }}
+  .result-cover {{ width:60px; height:88px; object-fit:cover; border-radius:6px; background:var(--bg-panel); flex-shrink:0; }}
+  .result-cover-ph {{ width:60px; height:88px; border-radius:6px; background:var(--bg-panel); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:22px; }}
   .result-body {{ flex:1; min-width:0; }}
-  .result-title {{ font-size:14px; font-weight:600; color:#e6edf3; margin-bottom:2px; }}
-  .result-sub {{ font-size:12px; color:#8b949e; margin-bottom:4px; }}
-  .result-genres {{ font-size:12px; color:#58a6ff; margin-bottom:6px; }}
-  .result-desc {{ font-size:12px; color:#8b949e; line-height:1.4; margin-bottom:8px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }}
+  .result-title {{ font-size:14px; font-weight:600; color:var(--text); margin-bottom:2px; }}
+  .result-sub {{ font-size:12px; color:var(--text-dim); margin-bottom:4px; }}
+  .result-genres {{ font-size:12px; color:var(--accent-book); margin-bottom:6px; }}
+  .result-desc {{ font-size:12px; color:var(--text-dim); line-height:1.4; margin-bottom:8px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }}
   .result-actions {{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }}
-  .skeleton {{ background:linear-gradient(90deg,#1c2128 25%,#21262d 50%,#1c2128 75%); background-size:200% 100%; animation:shimmer 1.2s infinite; border-radius:4px; }}
+  .skeleton {{ background:linear-gradient(90deg,var(--bg-card) 25%,var(--bg-panel) 50%,var(--bg-card) 75%); background-size:200% 100%; animation:shimmer 1.2s infinite; border-radius:4px; }}
   @keyframes shimmer {{ 0%{{background-position:200% 0}} 100%{{background-position:-200% 0}} }}
-  .wl-item {{ display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid #21262d; cursor:pointer; }}
-  .wl-item:hover .wl-title {{ color:#58a6ff; }}
-  .wl-cover {{ width:40px; height:58px; object-fit:cover; border-radius:3px; background:#21262d; flex-shrink:0; }}
-  .wl-cover-ph {{ width:40px; height:58px; border-radius:3px; background:#21262d; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:16px; }}
-  .wl-title {{ font-size:13px; font-weight:600; color:#e6edf3; transition:color .15s; }}
-  .wl-badge {{ background:#161b22; border:1px solid #30363d; border-radius:12px; padding:2px 8px; font-size:11px; color:#8b949e; }}
-  .filter-pill {{ background:#1c2128; border:1px solid #30363d; border-radius:20px; padding:8px 14px; font-size:12px; color:#8b949e; cursor:pointer; white-space:nowrap; min-height:36px; transition:all .15s; }}
-  .filter-pill:hover {{ border-color:#58a6ff; color:#58a6ff; }}
-  .filter-pill.active {{ background:#1f6feb22; border-color:#1f6feb; color:#58a6ff; }}
-  .related-item {{ display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid #21262d; }}
+  .wl-item {{ display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--border); cursor:pointer; }}
+  .wl-item:hover .wl-title {{ color:var(--accent-book); }}
+  .wl-cover {{ width:40px; height:58px; object-fit:cover; border-radius:4px; background:var(--bg-panel); flex-shrink:0; }}
+  .wl-cover-ph {{ width:40px; height:58px; border-radius:4px; background:var(--bg-panel); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:16px; }}
+  .wl-title {{ font-size:13px; font-weight:600; color:var(--text); transition:color .15s; }}
+  .wl-badge {{ background:var(--bg); border:1px solid var(--border); border-radius:12px; padding:2px 8px; font-size:11px; color:var(--text-dim); }}
+  .filter-pill {{ background:var(--bg-card); border:1px solid var(--border-dark); border-radius:2px; padding:8px 14px; font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--text-dim); cursor:pointer; white-space:nowrap; min-height:36px; transition:color .15s, border-color .15s, background .15s; }}
+  .filter-pill:hover {{ border-color:var(--cobalt); color:var(--cobalt); }}
+  .filter-pill.active {{ background:var(--cobalt); border-color:var(--cobalt); color:#fff; }}
+  .related-item {{ display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); }}
   .star-r {{ display:inline-flex; gap:1px; }}
-  .star-r span {{ font-size:18px; cursor:pointer; color:#30363d; transition:color .15s; padding:4px 2px; }}
-  .star-r span.lit {{ color:#f0883e; }}
+  .star-r span {{ font-size:18px; cursor:pointer; color:var(--border-light); transition:color .15s; padding:6px 4px; }}
+  .star-r span.lit {{ color:var(--accent-film); }}
   #detail-overlay {{ position:fixed; inset:0; z-index:200; display:none; }}
-  #detail-backdrop {{ position:absolute; inset:0; background:rgba(0,0,0,.7); }}
-  #detail-panel {{ position:absolute; top:0; right:0; bottom:0; width:min(560px,100vw); background:#161b22; border-left:1px solid #30363d; overflow-y:auto; display:flex; flex-direction:column; transform:translateX(100%); transition:transform .25s ease; }}
+  #detail-backdrop {{ position:absolute; inset:0; background:rgba(26,22,18,.5); backdrop-filter:blur(4px); }}
+  #detail-panel {{ position:absolute; top:0; right:0; bottom:0; width:min(560px,100vw); background:var(--bg-panel); border-left:3px solid var(--text); overflow-y:auto; display:flex; flex-direction:column; transform:translateX(100%); transition:transform .25s ease; }}
   #detail-overlay.open #detail-panel {{ transform:translateX(0); }}
   #detail-overlay.open {{ display:block; }}
-  .detail-backdrop-img {{ width:100%; height:180px; object-fit:cover; background:#1c2128; flex-shrink:0; }}
+  .detail-backdrop-img {{ width:100%; height:200px; object-fit:cover; background:var(--bg-card); flex-shrink:0; }}
   .detail-body {{ padding:20px; flex:1; }}
-  .detail-title {{ font-size:20px; font-weight:700; color:#e6edf3; margin-bottom:4px; }}
-  .detail-meta {{ font-size:13px; color:#8b949e; margin-bottom:12px; }}
+  .detail-title {{ font-size:20px; font-weight:700; color:var(--text); margin-bottom:4px; }}
+  .detail-meta {{ font-size:13px; color:var(--text-dim); margin-bottom:12px; }}
   .detail-genres {{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }}
-  .detail-genre-tag {{ background:#1c2128; border:1px solid #30363d; border-radius:12px; padding:3px 10px; font-size:12px; color:#8b949e; }}
+  .detail-genre-tag {{ background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:3px 10px; font-size:12px; color:var(--text-dim); }}
   .detail-section {{ margin-bottom:16px; }}
-  .detail-section-label {{ font-size:11px; font-weight:600; color:#58a6ff; text-transform:uppercase; letter-spacing:.06em; margin-bottom:6px; }}
+  .detail-section-label {{ font-size:11px; font-weight:600; color:var(--accent-book); text-transform:uppercase; letter-spacing:.06em; margin-bottom:6px; }}
   .detail-cast {{ display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; }}
   .cast-card {{ text-align:center; flex-shrink:0; width:64px; }}
-  .cast-avatar {{ width:56px; height:56px; border-radius:50%; object-fit:cover; background:#21262d; margin:0 auto 4px; display:block; }}
-  .cast-name {{ font-size:10px; color:#8b949e; line-height:1.2; }}
+  .cast-avatar {{ width:56px; height:56px; border-radius:50%; object-fit:cover; background:var(--bg-card); margin:0 auto 4px; display:block; }}
+  .cast-name {{ font-size:10px; color:var(--text-dim); line-height:1.2; }}
   .streaming-pills {{ display:flex; gap:6px; flex-wrap:wrap; }}
-  .streaming-pill {{ background:#1c2128; border:1px solid #30363d; border-radius:6px; padding:5px 10px; font-size:12px; color:#e6edf3; }}
-  .streaming-pill.flatrate {{ border-color:#3fb95055; color:#3fb950; }}
-  .detail-link {{ display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border:1px solid #30363d; border-radius:6px; font-size:13px; color:#58a6ff; text-decoration:none; transition:border-color .15s; margin-right:8px; margin-bottom:8px; }}
-  .detail-link:hover {{ border-color:#58a6ff; background:#1f6feb11; }}
-  .detail-close {{ position:sticky; top:0; z-index:1; background:#161b22; border-bottom:1px solid #21262d; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; }}
-  .detail-close button {{ background:none; border:none; color:#8b949e; font-size:22px; cursor:pointer; padding:4px; line-height:1; }}
-  .detail-close button:hover {{ color:#e6edf3; }}
+  .streaming-pill {{ background:var(--bg-card); border:1px solid var(--border); border-radius:6px; padding:5px 10px; font-size:12px; color:var(--text); }}
+  .streaming-pill.flatrate {{ border-color:#3fb95055; color:var(--accent-music); }}
+  .detail-link {{ display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border:1px solid var(--border); border-radius:8px; font-size:13px; color:var(--accent-book); text-decoration:none; transition:border-color .15s, background .15s; margin-right:8px; margin-bottom:8px; }}
+  .detail-link:hover {{ border-color:var(--accent-book); background:#1f6feb11; }}
+  .detail-close {{ position:sticky; top:0; z-index:1; background:var(--cobalt); border-bottom:3px solid var(--gold); padding:14px 20px; display:flex; justify-content:space-between; align-items:center; }}
+  .detail-close button {{ background:none; border:none; color:rgba(255,255,255,0.7); font-size:22px; cursor:pointer; padding:4px; line-height:1; transition:color .15s; }}
+  .detail-close button:hover {{ color:#fff; }}
+  #detail-panel-title {{ color:rgba(255,255,255,0.9) !important; }}
+  /* Section images */
+  .sec-img {{
+    width:100%; height:220px; object-fit:cover; border-radius:4px;
+    margin-bottom:20px; display:block;
+    border:1px solid var(--border-dark);
+  }}
+  /* Collapsible panels */
+  .collapsible {{ position:relative; }}
+  .collapsible-body {{ overflow:hidden; transition:max-height .4s ease; }}
+  .collapsible.collapsed .collapsible-body {{ max-height:var(--max-h, 420px); }}
+  .collapsible.collapsed .collapsible-fade {{
+    display:block;
+    position:absolute; bottom:40px; left:0; right:0; height:80px;
+    background:linear-gradient(to bottom, transparent, var(--bg-panel));
+    pointer-events:none;
+  }}
+  .collapsible-fade {{ display:none; }}
+  .collapsible-btn {{
+    display:block; width:100%; margin-top:12px; padding:9px 0;
+    background:none; border:1px solid var(--border-dark); border-radius:2px;
+    font-family:inherit; font-size:11px; font-weight:700; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--text-dim); cursor:pointer;
+    transition:color .15s, border-color .15s;
+  }}
+  .collapsible-btn:hover {{ color:var(--cobalt); border-color:var(--cobalt); }}
+  /* Section divider headings — NASA travel poster editorial */
+  .sec-heading {{
+    padding:56px 0 4px; position:relative;
+    border-top:3px solid var(--border-dark);
+    margin-top:8px;
+  }}
+  .sec-eyebrow {{
+    display:inline-flex; align-items:center; gap:10px;
+    font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.22em;
+    margin-bottom:10px;
+  }}
+  .sec-eyebrow::before {{
+    content:''; display:inline-block; width:32px; height:2px; background:currentColor;
+  }}
+  .sec-title {{
+    font-family:'Lora',Georgia,serif;
+    font-size:clamp(40px,7vw,80px);
+    font-weight:700;
+    letter-spacing:-.03em;
+    line-height:1;
+    margin-bottom:4px;
+    color:var(--text);
+  }}
+  .sec-title.film   {{ color:var(--rust); }}
+  .sec-title.book   {{ color:var(--cobalt); }}
+  .sec-title.music  {{ color:var(--teal); }}
+  .sec-title.pattern {{
+    font-size:clamp(48px,9vw,108px);
+    color:var(--accent-patterns);
+  }}
+  .sec-title.recs   {{ color:var(--gold); }}
+  /* Result + rec card hover */
+  .rec-card:hover {{ border-color:var(--gold); background:var(--bg); }}
+  /* Table */
+  td, th {{ padding:10px; text-align:left; border-bottom:1px solid var(--border); font-size:13px; color:var(--text); }}
+  th {{ color:var(--text-dim); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.06em; }}
+  li {{ margin-bottom:6px; font-size:13px; color:var(--text-dim); line-height:1.55; }}
+  /* Cluster */
+  .cluster-name {{ font-size:15px; font-weight:700; color:var(--rust); margin-bottom:6px; }}
+  .cluster-desc {{ font-size:13px; color:var(--text-dim); margin-bottom:8px; line-height:1.55; }}
+  .cluster-items {{ font-size:12px; color:var(--cobalt); }}
+  /* Rec confidence */
+  .rec-conf {{ font-size:13px; color:var(--teal); font-weight:700; flex-shrink:0; }}
+  .rec-reason {{ font-size:13px; color:var(--text-dim); margin-bottom:6px; line-height:1.55; }}
+  .rec-friction {{ font-size:12px; color:var(--rust); line-height:1.4; margin-bottom:10px; }}
+  /* Star ratings */
+  .star {{ font-size:18px; cursor:pointer; color:var(--border-dark); transition:color .15s; line-height:1; padding:6px 4px; }}
+  .star.lit {{ color:var(--gold); }}
+  .star:hover {{ color:var(--gold); }}
+  .star-r span {{ font-size:18px; cursor:pointer; color:var(--border-dark); transition:color .15s; padding:6px 4px; }}
+  .star-r span.lit {{ color:var(--gold); }}
+  /* Series row */
+  .series-name {{ font-size:14px; color:var(--text); font-weight:500; }}
+  .series-count {{ font-size:13px; color:var(--text-dim); }}
+  /* Stat override — use cobalt for all */
+  .stat-n {{ color:var(--cobalt) !important; }}
+  /* View tabs */
+  #view-tabs {{ position:sticky; top:var(--search-h); z-index:99; background:var(--bg); border-bottom:2px solid var(--border-dark); padding:0 24px; margin:0 -24px; }}
+  .view-tab-inner {{ max-width:1000px; margin:0 auto; display:flex; gap:0; }}
+  .view-tab {{ padding:10px 20px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--text-dim); background:none; border:none; border-bottom:3px solid transparent; cursor:pointer; transition:color .15s, border-color .15s; white-space:nowrap; }}
+  .view-tab.active {{ color:var(--cobalt); border-bottom-color:var(--cobalt); }}
+  .view-tab:hover {{ color:var(--text); }}
+  body.view-analytics #sec-recs {{ display:none; }}
+  body.view-analytics #search-bar {{ display:none; }}
+  body.view-analytics #section-nav {{ top:var(--tabs-h, 44px); }}
+  body.view-picks #analytics-view {{ display:none; }}
+  body.view-picks #section-nav {{ display:none; }}
+  body.view-picks #view-tabs {{ top:var(--search-h); }}
+  /* Mobile */
+  @media(max-width:700px) {{
+    body {{ overflow-x:hidden; }}
+    .sec-title {{ font-size:clamp(32px,10vw,56px); }}
+    .sec-title.pattern {{ font-size:clamp(40px,12vw,72px); }}
+  }}
 </style>
 </head>
 <body>
@@ -513,8 +996,32 @@ def render(conn) -> str:
       <option value="book">📖 Books</option>
       <option value="film">🎬 Films</option>
       <option value="tv">📺 TV</option>
+      <option value="music">🎵 Music</option>
+      <option value="podcast">🎙️ Podcasts</option>
     </select>
     <button id="search-btn" onclick="doSearch()">Search</button>
+  </div>
+</div>
+
+<!-- View tabs -->
+<div id="view-tabs">
+  <div class="view-tab-inner">
+    <button class="view-tab active" data-view="analytics" onclick="switchView('analytics')">Analytics</button>
+    <button class="view-tab" data-view="picks" onclick="switchView('picks')">Picks</button>
+  </div>
+</div>
+
+<!-- Section nav -->
+<div id="section-nav">
+  <div class="snav-inner">
+    <a class="snav-link" href="#sec-overview">Overview</a>
+    <a class="snav-link" href="#sec-films">Films</a>
+    <a class="snav-link" href="#sec-series">Series</a>
+    <a class="snav-link" href="#sec-music-wrap">Music</a>
+    <a class="snav-link" href="#sec-books">Books</a>
+    <a class="snav-link" href="#sec-podcasts">Podcasts</a>
+    <a class="snav-link" href="#sec-comics">Comics</a>
+    <a class="snav-link" href="#sec-patterns">Patterns</a>
   </div>
 </div>
 
@@ -527,6 +1034,8 @@ def render(conn) -> str:
       <button class="filter-pill" onclick="filterResults('film',this)">🎬 Films</button>
       <button class="filter-pill" onclick="filterResults('tv_show',this)">📺 Series</button>
       <button class="filter-pill" onclick="filterResults('book',this)">📖 Books</button>
+      <button class="filter-pill" onclick="filterResults('music',this)">🎵 Music</button>
+      <button class="filter-pill" onclick="filterResults('podcast',this)">🎙️ Podcasts</button>
     </div>
   </div>
   <div id="search-results-list"></div>
@@ -548,12 +1057,13 @@ def render(conn) -> str:
 </div>
 
 <div style="margin-bottom:24px">
+  <img src="/culture/img/hero-overview.jpg" style="width:100%;height:260px;object-fit:cover;border-radius:4px;margin-bottom:20px;border:1px solid var(--border-dark)" alt="">
   <h1>Entertainment Dashboard</h1>
   <div class="dim">Profile generated {generated} · {total_consumed} items consumed · {len(book_ratings)} ratings</div>
 </div>
 
 <!-- Stats bar -->
-<div class="panel">
+<div class="panel" id="sec-overview">
   <div class="stat-bar">
     <div class="stat"><div class="stat-n">{stats["books"] or 0}</div><div class="stat-l">Books read</div></div>
     <div class="stat"><div class="stat-n">{stats["audiobooks"] or 0}</div><div class="stat-l">Audiobooks</div></div>
@@ -567,47 +1077,124 @@ def render(conn) -> str:
   <div class="dim" style="margin-top:12px;font-size:12px">Rating calibration: {cal.get("five_star_threshold","")}</div>
 </div>
 
-<!-- Genre fingerprint + Rating distribution -->
-<div class="grid-2">
-  <div class="panel">
-    <h2>Genre Fingerprint</h2>
-    {genre_chart}
+<!-- Analytics view wrapper (hidden in Picks mode) -->
+<div id="analytics-view">
+
+<!-- Films section -->
+<!-- ═══ FILMS ══════════════════════════════════════════════════════════════ -->
+<div id="sec-films">
+  <div class="sec-heading">
+    <img src="/culture/img/section-films.jpg" class="sec-img" alt="">
+    <div class="sec-eyebrow" style="color:var(--accent-film)">Films &amp; TV</div>
+    <div class="sec-title film">What I watch.</div>
   </div>
-  <div class="panel">
-    <h2>Rating Distribution</h2>
-    {rating_hist}
-    <div class="dim" style="margin-top:8px;font-size:12px">Tendency: {cal.get("tendency","—")}</div>
+
+  <div class="grid-2" style="margin-top:4px">
+    <div class="panel">
+      <h2>Films vs. Series</h2>
+      <div style="display:flex;gap:32px;margin-bottom:20px;align-items:flex-end">
+        <div>
+          <div style="font-size:48px;font-weight:800;color:var(--accent-film);font-family:'Lora',serif;line-height:1">{film_pct}%</div>
+          <div style="font-size:12px;color:var(--text-dim);margin-top:4px;text-transform:uppercase;letter-spacing:.06em">Films<br><span style="font-size:16px;font-weight:700;color:var(--text)">{n_films}</span></div>
+        </div>
+        <div>
+          <div style="font-size:48px;font-weight:800;color:var(--accent-book);font-family:'Lora',serif;line-height:1">{series_pct}%</div>
+          <div style="font-size:12px;color:var(--text-dim);margin-top:4px;text-transform:uppercase;letter-spacing:.06em">Series<br><span style="font-size:16px;font-weight:700;color:var(--text)">{n_series}</span></div>
+        </div>
+      </div>
+      <div style="height:12px;background:rgba(26,22,18,0.1);border-radius:2px;overflow:hidden;display:flex">
+        <div style="width:{film_pct}%;background:var(--accent-film)"></div>
+        <div style="width:{series_pct}%;background:var(--accent-book);opacity:0.7"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>My Rating Distribution</h2>
+      {user_rating_html}
+      <div class="dim" style="margin-top:10px;font-size:12px">{len(film_ratings)} rated · avg {round(sum(film_ratings)/len(film_ratings),1) if film_ratings else "—"}★</div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="panel">
+      <h2>Watched per Year</h2>
+      {watched_by_year_html}
+      {watched_legend}
+    </div>
+    <div class="panel">
+      <h2>Film &amp; TV Genres</h2>
+      {film_genre_chart}
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="panel">
+      <h2>Era — Decade of Release</h2>
+      {decade_chart_html}
+      <div class="dim" style="margin-top:8px;font-size:12px">Where in film history your watchlist lives</div>
+    </div>
+    <div class="panel">
+      <h2>Top Directors</h2>
+      <div class="grid-2" style="gap:12px">
+        <div>
+          <h3 style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Highest rated</h3>
+          <table><tr><th>Director</th><th>n</th><th>Avg</th></tr>{directors_by_rating_html}</table>
+        </div>
+        <div>
+          <h3 style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Most watched</h3>
+          <table><tr><th>Director</th><th>n</th><th>Avg</th></tr>{directors_by_count_html}</table>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
-<!-- Film genre fingerprint + Rating distribution -->
-<div class="grid-2">
-  <div class="panel">
-    <h2>Film & TV Genres</h2>
-    {film_genre_chart}
+<!-- ═══ SERIES (recent activity) ═════════════════════════════════════════ -->
+<div id="sec-series">
+  <div class="sec-heading">
+    <img src="/culture/img/section-series.jpg" class="sec-img" alt="">
+    <div class="sec-eyebrow" style="color:var(--accent-film)">Recent</div>
+    <div class="sec-title film" style="font-size:clamp(28px,5vw,56px)">What I watched lately.</div>
   </div>
-  <div class="panel">
-    <h2>Film Rating Distribution</h2>
-    {film_rating_hist}
+
+  <div class="panel" style="margin-top:4px">
+    <div style="display:flex;align-items:center;gap:24px;margin-bottom:20px">
+      <div class="stat"><div class="stat-n">{total_shows}</div><div class="stat-l">Shows watched</div></div>
+      <div class="stat"><div class="stat-n">{total_films}</div><div class="stat-l">Films watched</div></div>
+    </div>
+    <div class="collapsible" data-max="420">
+      <div class="collapsible-body">
+        <div class="grid-2">
+          <div>
+            <h3>Recent Shows</h3>
+            <table><tr><th>Title</th><th>Last watched</th></tr>{recent_shows_html}</table>
+          </div>
+          <div>
+            <h3>Recent Films</h3>
+            <table><tr><th>Title</th><th>Watched</th></tr>{recent_films_html}</table>
+          </div>
+        </div>
+        {f'<div style="margin-top:16px"><h3>Recently rated</h3><table><tr><th>Title</th><th></th></tr>{recent_rated_html}</table></div>' if recent_rated_html else ''}
+      </div>
+      <div class="collapsible-fade"></div>
+      <button class="collapsible-btn" onclick="toggleCollapsible(this)">See more ↓</button>
+    </div>
   </div>
 </div>
 
-<!-- Top directors -->
-<div class="panel">
-  <h2>Top Directors</h2>
-  <table>
-    <tr><th>Director</th><th>Films</th><th>Avg</th></tr>
-    {directors_html}
-  </table>
+<!-- ═══ MUSIC ══════════════════════════════════════════════════════════════ -->
+<div id="sec-music-wrap">
+  <div class="sec-heading">
+    <img src="/culture/img/section-music.jpg" class="sec-img" alt="">
+    <div class="sec-eyebrow" style="color:var(--accent-music)">Music</div>
+    <div class="sec-title music">What I hear.</div>
+  </div>
 </div>
 
-<!-- Spotify -->
-<div class="panel">
-  <h2>Spotify</h2>
+<div class="panel" id="sec-music">
   <div class="stat-bar" style="margin-bottom:20px">
-    <div class="stat"><div class="stat-n" style="color:#1db954">{spotify_total_plays}</div><div class="stat-l">Plays (≥30s)</div></div>
-    <div class="stat"><div class="stat-n" style="color:#1db954">{spotify_total_hours}h</div><div class="stat-l">Listening time</div></div>
-    <div class="stat"><div class="stat-n" style="color:#1db954">{spotify_total_artists}</div><div class="stat-l">Unique artists</div></div>
+    <div class="stat"><div class="stat-n" style="color:var(--accent-music)">{spotify_total_plays}</div><div class="stat-l">Plays (≥30s)</div></div>
+    <div class="stat"><div class="stat-n" style="color:var(--accent-music)">{spotify_total_hours}h</div><div class="stat-l">Listening time</div></div>
+    <div class="stat"><div class="stat-n" style="color:var(--accent-music)">{spotify_total_artists}</div><div class="stat-l">Unique artists</div></div>
   </div>
   <div class="grid-2">
     <div>
@@ -616,106 +1203,184 @@ def render(conn) -> str:
     </div>
     <div>
       <h3>Year by Year</h3>
-      <table>
-        <tr><th>Year</th><th>Plays</th><th>Hours</th></tr>
-        {spotify_year_rows}
-      </table>
+      <table><tr><th>Year</th><th>Plays</th><th>Hours</th></tr>{spotify_year_rows}</table>
     </div>
   </div>
 </div>
 
-<!-- Netflix -->
-<div class="panel">
-  <h2>Netflix</h2>
-  <div class="stat-bar" style="margin-bottom:20px">
-    <div class="stat"><div class="stat-n" style="color:#e50914">{netflix_total_shows}</div><div class="stat-l">Shows watched</div></div>
-    <div class="stat"><div class="stat-n" style="color:#e50914">{netflix_total_films}</div><div class="stat-l">Films &amp; specials</div></div>
+<div class="grid-2">
+  <div class="panel">
+    <h2>Top Tracks</h2>
+    {top_tracks_html if top_tracks_html else "<p class='dim'>No track data.</p>"}
   </div>
+  <div class="panel">
+    <h2>Top Albums</h2>
+    {top_albums_html if top_albums_html else "<p class='dim'>No album data.</p>"}
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Artist Sprint — Top 5 by Year</h2>
+  <div class="dim" style="margin-bottom:12px;font-size:12px">How your listening shifted year by year</div>
+  {sprint_html if sprint_html else "<p class='dim'>No data.</p>"}
+</div>
+
+<!-- ═══ BOOKS ══════════════════════════════════════════════════════════════ -->
+<div id="sec-books">
+  <div class="sec-heading">
+    <img src="/culture/img/section-books.jpg" class="sec-img" alt="">
+    <div class="sec-eyebrow" style="color:var(--accent-book)">Books</div>
+    <div class="sec-title book">What I read.</div>
+  </div>
+
+  <div class="grid-2" style="margin-top:4px">
+    <div class="panel">
+      <h2>Genre Fingerprint</h2>
+      {genre_chart}
+    </div>
+    <div class="panel">
+      <h2>Series vs. Standalone</h2>
+      <div style="display:flex;gap:32px;margin-bottom:20px;align-items:flex-end">
+        <div>
+          <div style="font-size:48px;font-weight:800;color:var(--accent-book);font-family:'Lora',serif;line-height:1">{series_books_pct}%</div>
+          <div style="font-size:12px;color:var(--text-dim);margin-top:4px;text-transform:uppercase;letter-spacing:.06em">Series<br><span style="font-size:16px;font-weight:700;color:var(--text)">{n_series_books}</span></div>
+        </div>
+        <div>
+          <div style="font-size:48px;font-weight:800;color:var(--teal);font-family:'Lora',serif;line-height:1">{standalone_books_pct}%</div>
+          <div style="font-size:12px;color:var(--text-dim);margin-top:4px;text-transform:uppercase;letter-spacing:.06em">Standalone<br><span style="font-size:16px;font-weight:700;color:var(--text)">{n_standalone_books}</span></div>
+        </div>
+      </div>
+      <div style="height:12px;background:rgba(26,22,18,0.1);border-radius:2px;overflow:hidden;display:flex">
+        <div style="width:{series_books_pct}%;background:var(--accent-book)"></div>
+        <div style="width:{standalone_books_pct}%;background:var(--teal);opacity:0.7"></div>
+      </div>
+      <div class="dim" style="margin-top:12px;font-size:12px">You almost always commit to a series.</div>
+    </div>
+  </div>
+
   <div class="grid-2">
-    <div>
-      <h3>Recent Shows</h3>
-      <table><tr><th>Title</th><th>Last watched</th></tr>{netflix_shows_html}</table>
+    <div class="panel">
+      <h2>Book Length</h2>
+      {page_bucket_chart}
+      <div class="dim" style="margin-top:10px;font-size:12px">Avg {avg_pages}p · longest {max_pages}p</div>
     </div>
-    <div>
-      <h3>Recent Films</h3>
-      <table><tr><th>Title</th><th>Watched</th></tr>{netflix_films_html}</table>
+    <div class="panel">
+      <h2>Era — Decade Published</h2>
+      {book_decade_chart}
+      <div class="dim" style="margin-top:8px;font-size:12px">When your books were written</div>
     </div>
   </div>
-  {f'<div style="margin-top:16px"><h3>Rated</h3><table><tr><th>Title</th><th></th></tr>{netflix_rated_html}</table></div>' if netflix_rated_html else ''}
-</div>
 
-<!-- Themes + Dislikes -->
-<div class="grid-2">
-  <div class="panel">
-    <h2>Core Themes</h2>
-    <ul style="padding-left:16px">{themes_html}</ul>
+  <div class="grid-2">
+    <div class="panel">
+      <h2>Top Authors</h2>
+      <table><tr><th>Author</th><th>Books</th><th>Avg</th></tr>{authors_html}</table>
+    </div>
+    <div class="panel">
+      <h2>Series Read</h2>
+      {series_html}
+    </div>
   </div>
-  <div class="panel">
-    <h2>Dislikes Pattern</h2>
-    <ul style="padding-left:16px">{dislikes_html}</ul>
-  </div>
-</div>
 
-<!-- Taste clusters -->
-<div class="panel">
-  <h2>Taste Clusters</h2>
-  {clusters_html}
-</div>
-
-<!-- Recommendations -->
-<div class="panel">
-  <h2>Recommendations <span style="font-size:13px;font-weight:400;color:#8b949e;text-transform:none;letter-spacing:0">— {len(recs)} across all media</span></h2>
-  {all_recs_html}
-</div>
-
-<!-- Top authors + Series tracker -->
-<div class="grid-2">
   <div class="panel">
-    <h2>Top Authors</h2>
-    <table>
-      <tr><th>Author</th><th>Books</th><th>Avg</th></tr>
-      {authors_html}
-    </table>
-  </div>
-  <div class="panel">
-    <h2>Series Read</h2>
-    {series_html}
+    <h2>To-Read Queue ({len(to_read)})</h2>
+    <div class="collapsible" data-max="380">
+      <div class="collapsible-body">
+        <table><tr><th>Title</th><th>Author</th></tr>{to_read_html}</table>
+      </div>
+      <div class="collapsible-fade"></div>
+      <button class="collapsible-btn" onclick="toggleCollapsible(this)">See more ↓</button>
+    </div>
   </div>
 </div>
 
-<!-- To-read queue -->
-<div class="panel">
-  <h2>To-Read Queue ({len(to_read)})</h2>
-  <table>
-    <tr><th>Title</th><th>Author</th></tr>
-    {to_read_html}
-  </table>
+<!-- ═══ PODCASTS ══════════════════════════════════════════════════════════ -->
+<div id="sec-podcasts">
+  <div class="sec-heading">
+    <div class="sec-eyebrow" style="color:var(--rust)">Podcasts</div>
+    <div class="sec-title" style="color:var(--rust)">What I listen to.</div>
+  </div>
+  <div class="panel" style="margin-top:4px">
+    <div class="dim" style="margin-bottom:16px;font-size:12px">Listening profile — {len(podcasts)} podcasts · used for recommendations</div>
+    <div class="collapsible" data-max="420">
+      <div class="collapsible-body">
+        {podcasts_html if podcasts_html else "<p class='dim'>No podcasts yet.</p>"}
+      </div>
+      <div class="collapsible-fade"></div>
+      <button class="collapsible-btn" onclick="toggleCollapsible(this)">See more ↓</button>
+    </div>
+  </div>
 </div>
 
-<!-- Comics & Graphic Novels -->
-<div class="panel">
-  <h2>Comics &amp; Graphic Novels
-    <span style="font-size:13px;font-weight:400;color:#8b949e;text-transform:none;letter-spacing:0">
-      — {comic_total} albums owned
-    </span>
-  </h2>
-  <div style="background:#1c2128;border:1px solid #c792ea44;border-radius:8px;padding:12px 16px;margin-bottom:20px;display:flex;align-items:flex-start;gap:10px">
-    <span style="font-size:18px;flex-shrink:0">📚</span>
-    <div>
-      <div style="font-size:13px;font-weight:600;color:#c792ea;margin-bottom:4px">Mostly read as a teenager / young adult</div>
-      <div class="dim" style="font-size:12px;line-height:1.5">
-        These are dear to the heart but the context is nostalgia, not current taste.
-        Apply <strong style="color:#e6edf3">lower relevancy</strong> when generating new comic recommendations — prefer confirming emotional resonance over pure novelty matching.
+<!-- ═══ COMICS ════════════════════════════════════════════════════════════ -->
+<div id="sec-comics">
+  <div class="sec-heading">
+    <img src="/culture/img/section-comics.jpg" class="sec-img" alt="">
+    <div class="sec-eyebrow" style="color:var(--accent-patterns)">Comics</div>
+    <div class="sec-title" style="color:var(--accent-patterns)">What I grew up reading.</div>
+  </div>
+
+  <div class="panel" style="margin-top:4px">
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:20px">
+      <div style="flex:1">
+        <p style="font-size:13px;color:var(--text-dim);line-height:1.6">
+          Mostly read as a teenager / young adult — nostalgia, not current taste. Apply <strong style="color:var(--text)">lower relevancy weight</strong> when generating new recommendations.
+        </p>
+      </div>
+      <div class="stat" style="flex-shrink:0">
+        <div class="stat-n" style="color:var(--accent-patterns)">{comic_total}</div>
+        <div class="stat-l">Albums owned</div>
       </div>
     </div>
+    <h3 style="margin-bottom:12px">Series</h3>
+    {comic_series_html}
+    {f'''<h3 style="margin-top:20px;margin-bottom:12px">Standalone albums</h3>
+    <table><tr><th>Title</th><th>Author</th><th>Year</th></tr>{comic_standalone_html}</table>''' if comic_standalone_html else ''}
   </div>
-  <h3 style="margin-bottom:12px">Series</h3>
-  {comic_series_html}
-  {f'''<h3 style="margin-top:20px;margin-bottom:12px">Standalone albums</h3>
-  <table>
-    <tr><th>Title</th><th>Author</th><th>Year</th></tr>
-    {comic_standalone_html}
-  </table>''' if comic_standalone_html else ''}
+</div>
+
+<!-- ═══ PATTERNS ══════════════════════════════════════════════════════════ -->
+<div id="sec-patterns">
+  <div class="sec-heading">
+    <img src="/culture/img/section-patterns.jpg" class="sec-img" alt="">
+    <div class="sec-eyebrow" style="color:var(--accent-patterns)">Patterns</div>
+    <div class="sec-title pattern">I am one.</div>
+  </div>
+
+  {f'<p style="max-width:700px;line-height:1.6;color:var(--text-dim);margin:12px 0 20px;font-size:14px">{profile_summary}</p>' if profile_summary else ''}
+
+  <div class="grid-2" style="margin-top:16px">
+    <div class="panel">
+      <h2>Core Themes</h2>
+      <ul style="padding-left:16px">{themes_html}</ul>
+    </div>
+    <div class="panel">
+      <h2>What I Don't Like</h2>
+      <ul style="padding-left:16px">{dislikes_html}</ul>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Taste Clusters</h2>
+    {clusters_html}
+  </div>
+</div>
+
+</div><!-- /#analytics-view -->
+
+<!-- ═══ RECOMMENDATIONS ═══════════════════════════════════════════════════ -->
+<div id="sec-recs">
+  <div class="sec-heading">
+    <div class="sec-eyebrow" style="color:var(--accent-recs)">Recommendations</div>
+    <div class="sec-title recs">What's next.</div>
+  </div>
+  <div class="panel" style="margin-top:16px" id="recs-panel">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px">
+      <span id="recs-count" class="dim" style="font-size:13px">{len(recs)} across all media</span>
+      <button onclick="refreshRecs()" class="action-btn" style="font-size:12px;padding:5px 12px;min-height:32px">↺ Refresh</button>
+    </div>
+    {all_recs_html}
+  </div>
 </div>
 
 </div><!-- /.wrap -->
@@ -726,6 +1391,17 @@ function switchTab(name) {{
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
   event.target.classList.add('active');
+}}
+
+function switchView(name) {{
+  document.body.classList.remove('view-analytics', 'view-picks');
+  document.body.classList.add('view-' + name);
+  localStorage.setItem('active_view', name);
+  document.querySelectorAll('.view-tab').forEach(t => {{
+    t.classList.toggle('active', t.dataset.view === name);
+  }});
+  // Scroll to top when switching views
+  window.scrollTo({{top: 0, behavior: 'smooth'}});
 }}
 
 function dismiss(id) {{
@@ -766,20 +1442,19 @@ function resetStars(id) {{
   }}
 }}
 
-function rateRec(id, stars) {{
+async function rateRec(id, stars) {{
+  // 1. Immediate localStorage save + animation
   const ratings = JSON.parse(localStorage.getItem('rated_recs') || '{{}}');
   ratings[id] = stars;
   localStorage.setItem('rated_recs', JSON.stringify(ratings));
-  // Persist as dismissed so it stays gone on reload
   const existing = JSON.parse(localStorage.getItem('dismissed_recs') || '[]');
   if (!existing.includes(id)) {{ existing.push(id); localStorage.setItem('dismissed_recs', JSON.stringify(existing)); }}
-  // Animate out: fix current height first, then collapse
   const card = document.getElementById('rec-'+id);
   if (card) {{
     card.style.overflow = 'hidden';
     card.style.maxHeight = card.offsetHeight + 'px';
     card.style.marginBottom = card.style.marginBottom || getComputedStyle(card).marginBottom;
-    void card.offsetHeight; // force reflow so browser registers the starting values
+    void card.offsetHeight;
     card.style.transition = 'opacity .25s ease, max-height .35s ease .15s, margin-bottom .35s ease .15s, padding .35s ease .15s';
     card.style.opacity = '0';
     card.style.maxHeight = '0';
@@ -787,6 +1462,30 @@ function rateRec(id, stars) {{
     card.style.paddingTop = '0';
     card.style.paddingBottom = '0';
     setTimeout(() => card.remove(), 600);
+  }}
+  // 2. Persist to server — resolve title → TMDB/OL ID → /api/interactions
+  if (!card) return;
+  const title = card.dataset.title;
+  const type = card.dataset.type;
+  if (!title || !type || type === 'music' || type === 'podcast') return; // no search API for these yet
+  try {{
+    const sr = await fetch(`${{API}}/api/search?q=${{encodeURIComponent(title)}}&type=${{type}}`);
+    if (!sr.ok) return;
+    const results = await sr.json();
+    if (!results.length) return;
+    const item = results[0];
+    // Ensure item is in DB
+    await fetch(API+'/api/items', {{
+      method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify(item)
+    }});
+    // Record rating
+    await fetch(API+'/api/interactions', {{
+      method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{item_id: item.id, interaction_type:'rating', value:String(stars)}})
+    }});
+  }} catch(e) {{
+    console.warn('rateRec: server persist failed', e);
   }}
 }}
 
@@ -808,8 +1507,107 @@ document.addEventListener('DOMContentLoaded', () => {{
     const starRow = document.getElementById('stars-'+id);
     if (starRow) starRow.style.display='none';
   }});
+  // Measure search bar + view tabs heights for sticky stacking
+  const searchBar = document.getElementById('search-bar');
+  if (searchBar) {{
+    document.documentElement.style.setProperty('--search-h', searchBar.offsetHeight + 'px');
+  }}
+  const viewTabs = document.getElementById('view-tabs');
+  if (viewTabs) {{
+    document.documentElement.style.setProperty('--tabs-h', viewTabs.offsetHeight + 'px');
+  }}
+  // Restore active view from localStorage
+  const savedView = localStorage.getItem('active_view') || 'analytics';
+  document.body.classList.add('view-' + savedView);
+  document.querySelectorAll('.view-tab').forEach(t => {{
+    t.classList.toggle('active', t.dataset.view === savedView);
+  }});
   loadWatchlist();
+  initSectionNav();
+  updateRecsCount();
+  initCollapsibles();
 }});
+
+function initCollapsibles() {{
+  document.querySelectorAll('.collapsible').forEach(el => {{
+    const maxH = parseInt(el.dataset.max || '420');
+    el.style.setProperty('--max-h', maxH + 'px');
+    const body = el.querySelector('.collapsible-body');
+    if (body && body.scrollHeight > maxH + 40) {{
+      el.classList.add('collapsed');
+    }} else {{
+      // Content fits — hide button
+      const btn = el.querySelector('.collapsible-btn');
+      if (btn) btn.style.display = 'none';
+    }}
+  }});
+}}
+
+function toggleCollapsible(btn) {{
+  const el = btn.closest('.collapsible');
+  if (!el) return;
+  const body = el.querySelector('.collapsible-body');
+  if (el.classList.contains('collapsed')) {{
+    el.classList.remove('collapsed');
+    body.style.maxHeight = body.scrollHeight + 'px';
+    btn.textContent = 'See less ↑';
+  }} else {{
+    body.style.maxHeight = '';
+    el.classList.add('collapsed');
+    btn.textContent = 'See more ↓';
+    el.scrollIntoView({{ behavior: 'smooth', block: 'nearest' }});
+  }}
+}}
+
+function initSectionNav() {{
+  const sectionIds = ['sec-overview','sec-films','sec-series','sec-music-wrap','sec-books','sec-podcasts','sec-comics','sec-patterns','sec-recs'];
+  const links = {{}};
+  sectionIds.forEach(id => {{
+    const link = document.querySelector(`.snav-link[href="#${{id}}"]`);
+    if (link) links[id] = link;
+  }});
+  if (!Object.keys(links).length) return;
+  Object.values(links)[0].classList.add('active');
+  const observer = new IntersectionObserver(entries => {{
+    entries.forEach(entry => {{
+      const link = links[entry.target.id];
+      if (!link) return;
+      if (entry.isIntersecting) {{
+        Object.values(links).forEach(l => l.classList.remove('active'));
+        link.classList.add('active');
+        link.scrollIntoView({{ behavior:'smooth', block:'nearest', inline:'nearest' }});
+      }}
+    }});
+  }}, {{ rootMargin:'-10% 0px -80% 0px', threshold:0 }});
+  sectionIds.forEach(id => {{
+    const el = document.getElementById(id);
+    if (el) observer.observe(el);
+  }});
+}}
+
+function updateRecsCount() {{
+  const total = document.querySelectorAll('.rec-card').length;
+  const hidden = document.querySelectorAll('.rec-card[style*="display: none"], .rec-card[style*="display:none"]').length;
+  const el = document.getElementById('recs-count');
+  if (el) el.textContent = `${{total - hidden}} across all media`;
+}}
+
+function refreshRecs() {{
+  document.querySelectorAll('.rec-card').forEach(card => {{ card.style.cssText = ''; }});
+  const dismissed = JSON.parse(localStorage.getItem('dismissed_recs') || '[]');
+  dismissed.forEach(id => {{
+    const el = document.getElementById('rec-'+id);
+    if (el) el.style.display = 'none';
+  }});
+  const rated = JSON.parse(localStorage.getItem('rated_recs') || '{{}}');
+  Object.entries(rated).forEach(([id, stars]) => {{
+    const badge = document.getElementById('rated-'+id);
+    if (badge) {{ badge.textContent = '★'.repeat(Number(stars)); badge.style.display = 'inline'; }}
+    const starRow = document.getElementById('stars-'+id);
+    if (starRow) starRow.style.display = 'none';
+  }});
+  updateRecsCount();
+}}
 
 // When opened as file:// use absolute server URL; when served, use relative
 const API = window.location.protocol === 'file:' ? 'http://localhost:8000' : '';
@@ -873,7 +1671,11 @@ function goHome() {{
 }}
 
 function typeEmoji(t) {{
-  return t === 'book' ? '📖' : t === 'tv_show' ? '📺' : '🎬';
+  if (t === 'book') return '📖';
+  if (t === 'tv_show') return '📺';
+  if (t === 'music') return '🎵';
+  if (t === 'podcast') return '🎙️';
+  return '🎬';
 }}
 
 function renderResultCard(item) {{
@@ -899,7 +1701,6 @@ function renderResultCard(item) {{
     </div>
     <div class="result-actions" style="margin-top:8px">
       <button class="action-btn watchlist ${{wlCls}}" id="wlbtn-${{sid}}">${{wlLabel}}</button>
-      <button class="action-btn detail-btn" onclick="showDetail('${{item.id}}')">Details ↗</button>
       <div class="star-r" id="stars-r-${{sid}}">${{starsHtml}}</div>
     </div>
   </div>`;
@@ -1046,136 +1847,318 @@ async function showRelated(itemId, title) {{
 }}
 
 // ── Detail panel ─────────────────────────────────────────────────────────────
-async function showDetail(itemId) {{
+// ── Detail pane — Supabase-backed ────────────────────────────────────────────
+
+function openDetailOverlay(title) {{
   const overlay = document.getElementById('detail-overlay');
   const body = document.getElementById('detail-content');
-  document.getElementById('detail-panel-title').textContent = '';
-  body.innerHTML = `<div style="padding:20px"><div class="skeleton" style="height:180px;border-radius:0;margin:-20px -20px 20px"></div><div class="skeleton" style="height:24px;width:60%;margin-bottom:12px"></div><div class="skeleton" style="height:14px;width:40%;margin-bottom:20px"></div><div class="skeleton" style="height:80px"></div></div>`;
+  document.getElementById('detail-panel-title').textContent = title || '';
+  body.innerHTML = `<div style="padding:20px">
+    <div class="skeleton" style="height:200px;border-radius:0;margin:-20px -20px 20px"></div>
+    <div class="skeleton" style="height:28px;width:65%;margin-bottom:10px"></div>
+    <div class="skeleton" style="height:14px;width:40%;margin-bottom:20px"></div>
+    <div class="skeleton" style="height:90px;margin-bottom:12px"></div>
+    <div class="skeleton" style="height:60px"></div>
+  </div>`;
   overlay.classList.add('open');
-  document.body.style.overflow='hidden';
+  document.body.style.overflow = 'hidden';
+  return body;
+}}
 
+// Build item_key from itemId string (handles "imdb:tt...", "netflix:...", etc.)
+function itemKeyFromId(itemId, mediaType) {{
+  // Already a full key like "film:imdb:tt123"
+  if (itemId.startsWith('film:') || itemId.startsWith('tv_show:') || itemId.startsWith('book:')) return itemId;
+  const mt = mediaType || 'film';
+  return `${{mt}}:${{itemId}}`;
+}}
+
+async function showDetail(itemId, mediaType) {{
+  const body = openDetailOverlay('');
   try {{
-    const r = await fetch(API+'/api/detail/'+encodeURIComponent(itemId));
+    const key = itemKeyFromId(itemId, mediaType);
+    const r = await fetch(`/api/culture/detail?key=${{encodeURIComponent(key)}}`);
+    if (r.status === 404) {{
+      // Not enriched yet — show linkouts
+      showDetailFallback(body, itemId, null);
+      return;
+    }}
     const d = await r.json();
-    document.getElementById('detail-panel-title').textContent = d.title||'';
-    if (d.media_type === 'book') {{
-      body.innerHTML = renderBookDetail(d, itemId);
-    }} else {{
-      body.innerHTML = renderFilmDetail(d, itemId);
-    }}
-    // Wire watchlist button
-    const wlBtn = document.getElementById('detail-wl-btn');
-    if(wlBtn) {{
-      const matchedItem = _lastResults.find(r=>r.id===itemId);
-      if(matchedItem) wlBtn.onclick = ()=>toggleItemWatchlist(matchedItem, wlBtn);
-    }}
+    document.getElementById('detail-panel-title').textContent = d.title || '';
+    body.innerHTML = renderStoryDetail(d, itemId);
+    wireDetailInteractions(d, itemId);
   }} catch(e) {{
-    body.innerHTML = '<div style="padding:20px;color:#8b949e">Failed to load details.</div>';
+    showDetailFallback(body, itemId, null);
   }}
 }}
 
+async function showDirectorDetail(name) {{
+  const body = openDetailOverlay(name);
+  try {{
+    const key = `director:${{name}}`;
+    const r = await fetch(`/api/culture/detail?key=${{encodeURIComponent(key)}}`);
+    if (r.status === 404) {{
+      const q = encodeURIComponent(name);
+      body.innerHTML = `<div style="padding:24px">
+        <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:16px">${{name}}</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <a class="detail-link" href="https://www.imdb.com/find?q=${{q}}&s=nm" target="_blank">🎬 IMDB ↗</a>
+          <a class="detail-link" href="https://letterboxd.com/director/${{name.toLowerCase().replace(/ /g,'-')}}/" target="_blank">🎞 Letterboxd ↗</a>
+        </div>
+        <p class="dim" style="margin-top:16px;font-size:12px">Enrichment not yet run for this director.</p>
+      </div>`;
+      return;
+    }}
+    const d = await r.json();
+    document.getElementById('detail-panel-title').textContent = name;
+    body.innerHTML = renderDirectorDetail(d);
+  }} catch(e) {{
+    body.innerHTML = `<div style="padding:24px;color:var(--text-dim)">Failed to load details for ${{name}}.</div>`;
+  }}
+}}
+
+async function showArtistDetail(name) {{
+  const body = openDetailOverlay(name);
+  try {{
+    const key = `artist:${{name}}`;
+    const r = await fetch(`/api/culture/detail?key=${{encodeURIComponent(key)}}`);
+    if (r.status === 404) {{
+      body.innerHTML = `<div style="padding:24px">
+        <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:16px">${{name}}</div>
+        <a class="detail-link" href="https://www.last.fm/music/${{encodeURIComponent(name)}}" target="_blank">🎵 Last.fm ↗</a>
+        <p class="dim" style="margin-top:16px;font-size:12px">Enrichment not yet run for this artist.</p>
+      </div>`;
+      return;
+    }}
+    const d = await r.json();
+    document.getElementById('detail-panel-title').textContent = name;
+    body.innerHTML = renderArtistDetail(d);
+  }} catch(e) {{
+    body.innerHTML = `<div style="padding:24px;color:var(--text-dim)">Failed to load details for ${{name}}.</div>`;
+  }}
+}}
+
+// ── Renderers ─────────────────────────────────────────────────────────────────
+
+function starBar(current, itemId, title, mediaType) {{
+  return [1,2,3,4,5].map(i => {{
+    const lit = i <= (current||0);
+    return `<span class="star${{lit?' lit':''}}" style="font-size:24px;padding:4px 6px;cursor:pointer"
+      onclick="rateDetailItem('${{itemId}}','${{(title||'').replace(/'/g,\"\\\\'\")}}',${{i}},'${{mediaType}}')"
+      onmouseenter="hoverDetailStars(this,${{i}})"
+      onmouseleave="resetDetailStars(this.parentNode,${{current||0}})">★</span>`;
+  }}).join('');
+}}
+
+function streamingBadges(streaming) {{
+  if (!streaming) return '';
+  const flat = (streaming.flatrate||[]).map(s=>`<span class="streaming-pill flatrate">${{s}}</span>`).join('');
+  const rent = (streaming.rent||[]).slice(0,3).map(s=>`<span class="streaming-pill">${{s}}</span>`).join('');
+  const buy  = (streaming.buy||[]).slice(0,2).map(s=>`<span class="streaming-pill" style="opacity:.7">${{s}}</span>`).join('');
+  return flat || rent || buy
+    ? `<div class="detail-section">
+        <div class="detail-section-label">Where to watch (DE)</div>
+        <div class="streaming-pills">${{flat}}${{rent}}${{buy}}</div>
+       </div>` : '';
+}}
+
+function linkRow(links) {{
+  if (!links) return '';
+  return Object.entries(links)
+    .filter(([,url]) => url)
+    .map(([label,url]) => `<a class="detail-link" href="${{url}}" target="_blank" rel="noopener">${{label}} ↗</a>`)
+    .join('');
+}}
+
+function renderStoryDetail(d, itemId) {{
+  const isBook = d.media_type === 'book';
+  const backdrop = d.backdrop_url
+    ? `<img class="detail-backdrop-img" src="${{d.backdrop_url}}" alt="">`
+    : d.poster_url
+    ? `<img class="detail-backdrop-img" src="${{d.poster_url}}" alt="" style="object-position:top">`
+    : '';
+  const coverImg = isBook && d.cover_url
+    ? `<img src="${{d.cover_url}}" style="width:100px;border-radius:4px;margin-bottom:16px;box-shadow:0 2px 8px rgba(26,22,18,.15)" alt="">` : '';
+
+  const metaParts = isBook
+    ? [d.author, d.year, d.page_count ? d.page_count+'p' : '', d.series_name ? (d.series_name+' #'+(d.series_pos||'?')) : ''].filter(Boolean)
+    : [d.directors?.join(', '), d.year, d.runtime_min ? d.runtime_min+'min' : ''].filter(Boolean);
+
+  const genreTags = (d.genres||d.subjects||[]).slice(0,5).map(g=>`<span class="detail-genre-tag">${{g}}</span>`).join('');
+  const castHtml = (d.cast||[]).slice(0,5).map(c => {{
+    const img = c.profile ? `<img class="cast-avatar" src="${{c.profile}}" alt="${{c.name}}">` : `<div class="cast-avatar" style="display:flex;align-items:center;justify-content:center;font-size:18px">👤</div>`;
+    return `<div class="cast-card">${{img}}<div class="cast-name">${{c.name}}<br><span style="opacity:.6">${{c.character||''}}</span></div></div>`;
+  }}).join('');
+  const tmdbScore = d.vote_average ? `<span style="font-weight:700;color:var(--rust)">${{d.vote_average}}</span><span style="color:var(--text-dim);font-size:12px"> /10 TMDB</span>` : '';
+  const yourRating = d.your_rating;
+  const yourDate = d.date_watched || d.date_read;
+
+  // Author bio (books)
+  const authorBio = isBook && d.author_bio
+    ? `<div class="detail-section">
+        ${{d.author_photo ? `<img src="${{d.author_photo}}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;float:left;margin:0 12px 8px 0">` : ''}}
+        <div class="detail-section-label">About ${{d.author||'the author'}}</div>
+        <p style="font-size:13px;color:var(--text-dim);line-height:1.6">${{d.author_bio}}</p>
+        <div style="clear:both"></div>
+       </div>` : '';
+
+  return `
+    ${{backdrop}}
+    <div class="detail-body">
+      ${{coverImg}}
+      <div class="detail-title">${{d.title}}</div>
+      <div class="detail-meta">${{metaParts.join(' · ')}} ${{tmdbScore}}</div>
+      ${{d.tagline ? `<p style="font-style:italic;color:var(--text-dim);font-size:13px;margin:8px 0 12px">"${{d.tagline}}"</p>` : ''}}
+      <div class="detail-genres">${{genreTags}}</div>
+
+      ${{yourRating || yourDate ? `<div class="detail-section" style="background:var(--bg-card);border-radius:4px;padding:12px;border:1px solid var(--border)">
+        <div class="detail-section-label">Your history</div>
+        ${{yourRating ? `<div style="font-size:20px;color:var(--gold)">${{'★'.repeat(Math.round(yourRating))}}<span style="font-size:13px;color:var(--text-dim);margin-left:6px">${{yourRating}} stars</span></div>` : ''}}
+        ${{yourDate ? `<div style="font-size:12px;color:var(--text-dim);margin-top:4px">${{isBook?'Read':'Watched'}}: ${{yourDate?.slice(0,10)||''}}</div>` : ''}}
+      </div>` : ''}}
+
+      <div class="detail-section">
+        <div class="detail-section-label">${{isBook ? 'Description' : 'Synopsis'}}</div>
+        <p style="font-size:13px;color:var(--text-dim);line-height:1.6">${{d.overview || d.description || 'No description available.'}}</p>
+      </div>
+      ${{authorBio}}
+      ${{castHtml ? `<div class="detail-section"><div class="detail-section-label">Cast</div><div class="detail-cast">${{castHtml}}</div></div>` : ''}}
+      ${{streamingBadges(d.streaming)}}
+
+      <div class="detail-section">
+        <div class="detail-section-label">Rate this</div>
+        <div id="detail-stars" style="display:flex;gap:2px">${{starBar(yourRating, itemId, d.title, d.media_type)}}</div>
+      </div>
+
+      <div style="margin-top:16px;flex-wrap:wrap;display:flex;gap:8px;align-items:center">
+        ${{linkRow(d.links)}}
+      </div>
+    </div>`;
+}}
+
+function renderDirectorDetail(d) {{
+  const filmRows = (d.your_films||[]).slice(0,10).map(f => {{
+    const stars = f.rating ? '★'.repeat(Math.round(f.rating)) : '—';
+    return `<tr>
+      <td style="cursor:pointer;color:var(--cobalt)" onclick="searchAndShowDetail('${{f.title?.replace(/'/g,"\\\\'")}}','film')">${{f.title||''}}</td>
+      <td style="color:var(--text-dim)">${{f.year||''}}</td>
+      <td style="color:var(--gold)">${{stars}}</td>
+    </tr>`;
+  }}).join('');
+
+  return `<div class="detail-body">
+    ${{d.photo_url ? `<img src="${{d.photo_url}}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;margin-bottom:16px;border:2px solid var(--border-dark)">` : ''}}
+    <div class="detail-title">${{d.name}}</div>
+    <div class="detail-meta">${{[d.birthday?.slice(0,4), d.place_of_birth].filter(Boolean).join(' · ')}}</div>
+    ${{d.bio ? `<div class="detail-section"><p style="font-size:13px;color:var(--text-dim);line-height:1.6">${{d.bio}}</p></div>` : ''}}
+    <div class="detail-section">
+      <div class="detail-section-label">Your watch history (${{d.your_count}} films · avg ${{d.your_avg}}★)</div>
+      <table><tr><th>Film</th><th>Year</th><th>Your rating</th></tr>${{filmRows}}</table>
+    </div>
+    <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">${{linkRow(d.links)}}</div>
+  </div>`;
+}}
+
+function renderArtistDetail(d) {{
+  const trackRows = (d.your_top_tracks||[]).map((t,i) =>
+    `<tr><td style="color:var(--text-dim)">${{i+1}}</td><td>${{t.title||t.track||''}}</td><td style="color:var(--accent-music)">${{(t.plays||0).toLocaleString()}}</td></tr>`
+  ).join('');
+  const albumRows = (d.your_top_albums||[]).map(a =>
+    `<tr><td>${{a.title||a.album||''}}</td><td style="color:var(--accent-music)">${{(a.plays||0).toLocaleString()}}</td></tr>`
+  ).join('');
+
+  return `<div class="detail-body">
+    <div class="detail-title">${{d.name}}</div>
+    <div class="detail-meta">${{d.listeners ? Number(d.listeners).toLocaleString()+' Last.fm listeners' : ''}}</div>
+    ${{d.tags?.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">${{d.tags.map(t=>`<span class="detail-genre-tag">${{t}}</span>`).join('')}}</div>` : ''}}
+    ${{d.bio ? `<div class="detail-section"><p style="font-size:13px;color:var(--text-dim);line-height:1.6">${{d.bio}}</p></div>` : ''}}
+    <div class="detail-section">
+      <div class="detail-section-label">Your listening — ${{(d.your_plays||0).toLocaleString()}} plays · ${{d.your_hours||0}}h</div>
+    </div>
+    ${{trackRows ? `<div class="detail-section"><div class="detail-section-label">Your top tracks</div><table><tr><th></th><th>Track</th><th>Plays</th></tr>${{trackRows}}</table></div>` : ''}}
+    ${{albumRows ? `<div class="detail-section"><div class="detail-section-label">Your top albums</div><table><tr><th>Album</th><th>Plays</th></tr>${{albumRows}}</table></div>` : ''}}
+    ${{d.similar?.length ? `<div class="detail-section"><div class="detail-section-label">Similar artists</div><div style="font-size:13px;color:var(--cobalt)">${{d.similar.map(s=>`<span style="cursor:pointer;margin-right:10px" onclick="showArtistDetail('${{s}}')">${{s}}</span>`).join('')}}</div></div>` : ''}}
+    <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">${{linkRow(d.links)}}</div>
+  </div>`;
+}}
+
+function showDetailFallback(body, itemId, title) {{
+  const q = encodeURIComponent((title || itemId.split(':').pop() || ''));
+  body.innerHTML = `<div style="padding:24px">
+    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px">${{title || itemId}}</div>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;line-height:1.6">Not yet enriched — search directly:</p>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <a class="detail-link" href="https://www.imdb.com/find?q=${{q}}" target="_blank">🎬 IMDB ↗</a>
+      <a class="detail-link" href="https://letterboxd.com/search/${{q}}/" target="_blank">🎞 Letterboxd ↗</a>
+      <a class="detail-link" href="https://www.goodreads.com/search?q=${{q}}" target="_blank">📖 Goodreads ↗</a>
+    </div>
+  </div>`;
+}}
+
+function wireDetailInteractions(d, itemId) {{
+  // nothing extra needed — stars are wired inline
+}}
+
+async function rateDetailItem(itemId, title, stars, mediaType) {{
+  // Optimistic UI
+  const container = document.getElementById('detail-stars');
+  if (container) {{
+    container.querySelectorAll('.star').forEach((s,i) => {{
+      s.classList.toggle('lit', i < stars);
+    }});
+  }}
+  await fetch('/api/culture/interact', {{
+    method: 'POST',
+    headers: {{'Content-Type':'application/json'}},
+    body: JSON.stringify({{ item_key: itemKeyFromId(itemId, mediaType), media_type: mediaType, title, interact: 'rating', value: String(stars) }}),
+  }});
+}}
+
+function hoverDetailStars(el, n) {{
+  const container = el.closest('[id="detail-stars"]') || el.parentNode;
+  container.querySelectorAll('.star').forEach((s,i) => {{ s.style.color = i < n ? 'var(--gold)' : 'var(--border-dark)'; }});
+}}
+function resetDetailStars(container, saved) {{
+  container.querySelectorAll('.star').forEach((s,i) => {{ s.style.color = i < saved ? 'var(--gold)' : 'var(--border-dark)'; }});
+}}
+
 function closeDetail() {{
-  const overlay = document.getElementById('detail-overlay');
-  overlay.classList.remove('open');
+  document.getElementById('detail-overlay').classList.remove('open');
   document.body.style.overflow='';
   setTimeout(()=>{{ document.getElementById('detail-content').innerHTML=''; }}, 260);
 }}
 
 document.addEventListener('keydown', e=>{{ if(e.key==='Escape') closeDetail(); }});
 
-function renderFilmDetail(d, itemId) {{
-  const meta = [d.directors&&d.directors.length?d.directors.join(', '):'', d.year, d.runtime_min?d.runtime_min+'min':d.seasons?d.seasons+' seasons':''].filter(Boolean).join(' · ');
-  const genres = (d.genres||[]).map(g=>`<span class="detail-genre-tag">${{g}}</span>`).join('');
-  const cast = (d.cast||[]).map(c=>{{
-    const img = c.profile ? `<img class="cast-avatar" src="${{c.profile}}" alt="${{c.name}}">` : `<div class="cast-avatar" style="display:flex;align-items:center;justify-content:center;font-size:20px">👤</div>`;
-    return `<div class="cast-card">${{img}}<div class="cast-name">${{c.name}}</div></div>`;
-  }}).join('');
-  const streamPills = (d.streaming_de||[]).map(s=>`<span class="streaming-pill flatrate">${{s}}</span>`).join('');
-  const rentPills = (d.rent_de||[]).map(s=>`<span class="streaming-pill">${{s}}</span>`).join('');
-  const backdrop = d.backdrop_url ? `<img class="detail-backdrop-img" src="${{d.backdrop_url}}" alt="">` : '';
-  const imdbLink = d.imdb_id ? `<a class="detail-link" href="https://www.imdb.com/title/${{d.imdb_id}}" target="_blank">IMDb ↗</a>` : '';
-  const jwLink = d.justwatch_url ? `<a class="detail-link" href="${{d.justwatch_url}}" target="_blank">JustWatch ↗</a>` : '';
-  const matched = _lastResults.find(r=>r.id===itemId)||{{}};
-  const wlLabel = matched.watchlist ? '✓ Watchlist' : '+ Watchlist';
-  const wlCls = matched.watchlist ? 'saved' : '';
-  const savedRating = matched.rating||0;
-  const starsHtml = [1,2,3,4,5].map(i=>`<span style="font-size:22px;cursor:pointer;color:${{i<=savedRating?'#f0883e':'#30363d'}};padding:4px" onclick="rateItem('${{itemId}}',${{i}})"  onmouseenter="this.style.color='#f0883e'" onmouseleave="this.style.color=this.className?'#f0883e':(${{i<=savedRating}})? '#f0883e':'#30363d'">★</span>`).join('');
-  const score = d.vote_average ? `<span style="color:#f0883e;font-weight:600">${{d.vote_average}}</span><span class="dim"> / 10 (TMDB)</span>` : '';
-  return `
-    ${{backdrop}}
-    <div class="detail-body">
-      <div class="detail-title">${{d.title}}</div>
-      <div class="detail-meta">${{meta}} ${{score}}</div>
-      <div class="detail-genres">${{genres}}</div>
-      ${{d.tagline?`<p style="font-style:italic;color:#8b949e;font-size:13px;margin-bottom:14px">"${{d.tagline}}"</p>`:''}}
-      <div class="detail-section">
-        <div class="detail-section-label">Synopsis</div>
-        <p style="font-size:13px;color:#8b949e;line-height:1.6">${{d.overview||'No synopsis available.'}}</p>
-      </div>
-      ${{cast?`<div class="detail-section"><div class="detail-section-label">Cast</div><div class="detail-cast">${{cast}}</div></div>`:''}}
-      ${{(streamPills||rentPills)?`<div class="detail-section"><div class="detail-section-label">Where to watch (DE)</div><div class="streaming-pills">${{streamPills}}${{rentPills}}</div></div>`:''}}
-      <div class="detail-section">
-        <div class="detail-section-label">Your rating</div>
-        <div>${{starsHtml}}</div>
-      </div>
-      <div style="margin-top:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <button class="action-btn watchlist ${{wlCls}}" id="detail-wl-btn">${{wlLabel}}</button>
-        ${{imdbLink}}${{jwLink}}
-      </div>
-    </div>`;
-}}
-
-function renderBookDetail(d, itemId) {{
-  const matched = _lastResults.find(r=>r.id===itemId)||{{}};
-  const wlLabel = matched.watchlist ? '✓ To-read list' : '+ To-read list';
-  const wlCls = matched.watchlist ? 'saved' : '';
-  const savedRating = matched.rating||0;
-  const starsHtml = [1,2,3,4,5].map(i=>`<span style="font-size:22px;cursor:pointer;color:${{i<=savedRating?'#f0883e':'#30363d'}};padding:4px" onclick="rateItem('${{itemId}}',${{i}})">★</span>`).join('');
-  const subjects = (d.subjects||[]).map(s=>`<span class="detail-genre-tag">${{s}}</span>`).join('');
-  const cover = d.cover_url ? `<img src="${{d.cover_url}}" style="width:120px;border-radius:6px;margin-bottom:16px" alt="">` : '';
-  return `
-    <div class="detail-body">
-      ${{cover}}
-      <div class="detail-title">${{d.title}}</div>
-      <div class="detail-meta">${{[d.author,d.year].filter(Boolean).join(' · ')}}</div>
-      <div class="detail-genres" style="margin-bottom:14px">${{subjects}}</div>
-      ${{d.description?`<div class="detail-section"><div class="detail-section-label">Description</div><p style="font-size:13px;color:#8b949e;line-height:1.6">${{d.description}}</p></div>`:''}}
-      <div class="detail-section">
-        <div class="detail-section-label">Your rating</div>
-        <div>${{starsHtml}}</div>
-      </div>
-      <div style="margin-top:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <button class="action-btn watchlist ${{wlCls}}" id="detail-wl-btn">${{wlLabel}}</button>
-        <a class="detail-link" href="${{d.goodreads_url}}" target="_blank">Goodreads ↗</a>
-        <a class="detail-link" href="${{d.audible_url}}" target="_blank">Audible DE ↗</a>
-        <a class="detail-link" href="${{d.ol_url}}" target="_blank">Open Library ↗</a>
-      </div>
-    </div>`;
-}}
-
-// ── Search-then-detail (for rec cards) ───────────────────────────────────────
+// ── Search-then-detail (rec cards click title) ────────────────────────────────
 async function searchAndShowDetail(title, mediaType) {{
-  // Show loading detail immediately
-  const overlay = document.getElementById('detail-overlay');
-  const body = document.getElementById('detail-content');
-  document.getElementById('detail-panel-title').textContent = title;
-  body.innerHTML = `<div style="padding:20px"><div class="skeleton" style="height:180px;border-radius:0;margin:-20px -20px 20px"></div><div class="skeleton" style="height:24px;width:60%;margin-bottom:12px"></div><div class="skeleton" style="height:80px"></div></div>`;
-  overlay.classList.add('open');
-  document.body.style.overflow = 'hidden';
-
+  const body = openDetailOverlay(title);
+  // Derive a key to try
+  const mt = mediaType === 'tv' ? 'tv_show' : (mediaType === 'book' ? 'book' : 'film');
+  // Try local API first with a title search
   try {{
-    const r = await fetch(`${{API}}/api/search?q=${{encodeURIComponent(title)}}&type=${{mediaType}}`);
-    const results = await r.json();
-    if (!results.length) {{
-      body.innerHTML = `<div style="padding:20px;color:#8b949e">No details found for "${{title}}".</div>`;
+    const r = await fetch(`/api/culture/detail?key=${{encodeURIComponent(mt+':title:'+title)}}`);
+    // 404 = not found by that key, try full search
+    if (r.status === 404) {{
+      // Fall back to TMDB search via local server if running, else show fallback
+      const sr = await fetch(`${{API}}/api/search?q=${{encodeURIComponent(title)}}&type=${{mediaType}}`)
+        .catch(() => null);
+      if (sr && sr.ok) {{
+        const results = await sr.json();
+        if (results.length) {{
+          _lastResults.push(...results.filter(r=>!_lastResults.find(x=>x.id===r.id)));
+          await showDetail(results[0].id, mt);
+          return;
+        }}
+      }}
+      showDetailFallback(body, title, title);
       return;
     }}
-    // Store in _lastResults so detail watchlist/rating buttons work
-    results.forEach(item => {{ if (!_lastResults.find(r=>r.id===item.id)) _lastResults.push(item); }});
-    const topResult = results[0];
-    await showDetail(topResult.id);
+    const d = await r.json();
+    document.getElementById('detail-panel-title').textContent = d.title || title;
+    body.innerHTML = renderStoryDetail(d, title);
   }} catch(e) {{
-    body.innerHTML = `<div style="padding:20px;color:#8b949e">Failed to load details for "${{title}}".</div>`;
+    showDetailFallback(body, title, title);
   }}
 }}
 </script>

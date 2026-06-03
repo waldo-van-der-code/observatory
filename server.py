@@ -76,8 +76,8 @@ async def api_search(
     q: str = Query(..., min_length=1),
     type: str = Query("all"),
 ):
-    if type not in ("all", "film", "tv", "book"):
-        raise HTTPException(400, "type must be all | film | tv | book")
+    if type not in ("all", "film", "tv", "book", "music", "podcast"):
+        raise HTTPException(400, "type must be all | film | tv | book | music | podcast")
 
     conn = get_conn()
     try:
@@ -369,6 +369,291 @@ async def api_detail(item_id: str):
         })
 
     return JSONResponse({"error": "unknown item type"}, 400)
+
+
+# ── Culture detail (rich panel — used by dashboard.html) ─────────────────────
+
+@app.get("/api/culture/detail")
+async def api_culture_detail(key: str = Query(...)):
+    """Resolve a key like 'film:tmdb:movie:123', 'book:ol:OL123W', 'director:Name'
+    and return a response formatted for renderStoryDetail() in dashboard.html."""
+    import httpx as _httpx
+
+    api_key = _tmdb_key()
+    timeout = _httpx.Timeout(8.0)
+    parts = key.split(":")
+
+    # director:Name
+    if parts[0] == "director":
+        name = ":".join(parts[1:])
+        return await _culture_director(name, api_key, timeout)
+
+    # artist:Name
+    if parts[0] == "artist":
+        raise HTTPException(404, "artist detail not enriched")
+
+    # Resolve media_type prefix: film | tv_show | book
+    if len(parts) < 2:
+        raise HTTPException(404, "unknown key format")
+
+    media_prefix = parts[0]  # film, tv_show, book (or tmdb/ol legacy)
+    rest = parts[1:]
+
+    # film:tmdb:movie:123 or tv_show:tmdb:tv:123
+    if rest[0] == "tmdb" and len(rest) >= 3:
+        kind = rest[1]   # movie | tv
+        tmdb_id = rest[2]
+        return await _culture_tmdb(kind, tmdb_id, api_key, timeout)
+
+    # book:ol:OL123W
+    if rest[0] == "ol" and len(rest) >= 2:
+        work_id = rest[1]
+        return await _culture_ol(work_id, timeout)
+
+    # Legacy: tmdb:movie:123
+    if media_prefix == "tmdb" and len(parts) >= 3:
+        return await _culture_tmdb(parts[1], parts[2], api_key, timeout)
+
+    # Legacy: ol:OL123W
+    if media_prefix == "ol" and len(parts) >= 2:
+        return await _culture_ol(parts[1], timeout)
+
+    # Title search: film:title:Title or tv_show:title:Title or book:title:Title
+    if rest[0] == "title":
+        title = ":".join(rest[1:])
+        return await _culture_by_title(media_prefix, title, api_key, timeout)
+
+    raise HTTPException(404, "unknown key format")
+
+
+async def _culture_tmdb(kind: str, tmdb_id: str, api_key: str, timeout) -> JSONResponse:
+    import httpx as _httpx
+    import asyncio as _asyncio
+    from urllib.parse import quote_plus
+
+    if not api_key:
+        raise HTTPException(503, "TMDB key not configured")
+
+    async with _httpx.AsyncClient(timeout=timeout) as client:
+        detail_r, credits_r, providers_r = await _asyncio.gather(
+            client.get(f"https://api.themoviedb.org/3/{kind}/{tmdb_id}", params={"api_key": api_key}),
+            client.get(f"https://api.themoviedb.org/3/{kind}/{tmdb_id}/credits", params={"api_key": api_key}),
+            client.get(f"https://api.themoviedb.org/3/{kind}/{tmdb_id}/watch/providers", params={"api_key": api_key}),
+        )
+
+    if detail_r.status_code != 200:
+        raise HTTPException(404, "not found in TMDB")
+
+    d = detail_r.json()
+    credits = credits_r.json() if credits_r.status_code == 200 else {}
+    providers_raw = providers_r.json() if providers_r.status_code == 200 else {}
+
+    cast = [
+        {"name": c["name"], "character": c.get("character", ""),
+         "profile": f"https://image.tmdb.org/t/p/w92{c['profile_path']}" if c.get("profile_path") else ""}
+        for c in credits.get("cast", [])[:5]
+    ]
+    directors = [p["name"] for p in credits.get("crew", []) if p.get("job") == "Director"]
+    if kind == "tv":
+        directors = [c["name"] for c in d.get("created_by", [])] or directors
+
+    de = providers_raw.get("results", {}).get("DE", {})
+    jw_link = de.get("link", "")
+    poster = d.get("poster_path")
+    backdrop = d.get("backdrop_path")
+    title = d.get("title") or d.get("name", "")
+    year_str = (d.get("release_date") or d.get("first_air_date") or "")[:4]
+    runtime = d.get("runtime") or (d.get("episode_run_time") or [None])[0]
+    imdb_id = d.get("imdb_id", "")
+
+    links: dict[str, str] = {}
+    if imdb_id:
+        links["🎬 IMDb"] = f"https://www.imdb.com/title/{imdb_id}/"
+    if jw_link:
+        links["▶ JustWatch"] = jw_link
+    lb_slug = quote_plus(title.lower().replace(" ", "-"))
+    links["🎞 Letterboxd"] = f"https://letterboxd.com/film/{lb_slug}/"
+
+    return JSONResponse({
+        "id": f"tmdb:{kind}:{tmdb_id}",
+        "media_type": "film" if kind == "movie" else "tv_show",
+        "title": title,
+        "year": int(year_str) if year_str.isdigit() else None,
+        "tagline": d.get("tagline", ""),
+        "overview": d.get("overview", ""),
+        "genres": [g["name"] for g in d.get("genres", [])],
+        "vote_average": round(d.get("vote_average", 0), 1),
+        "runtime_min": runtime,
+        "seasons": d.get("number_of_seasons"),
+        "poster_url": f"https://image.tmdb.org/t/p/w342{poster}" if poster else "",
+        "backdrop_url": f"https://image.tmdb.org/t/p/w780{backdrop}" if backdrop else "",
+        "directors": directors,
+        "cast": cast,
+        "streaming": {
+            "flatrate": [p["provider_name"] for p in de.get("flatrate", [])],
+            "rent": [p["provider_name"] for p in de.get("rent", [])],
+            "buy": [p["provider_name"] for p in de.get("buy", [])],
+        },
+        "links": links,
+        "your_rating": None,
+        "date_watched": None,
+    })
+
+
+async def _culture_ol(work_id: str, timeout) -> JSONResponse:
+    import httpx as _httpx
+    from urllib.parse import quote_plus
+
+    async with _httpx.AsyncClient(timeout=timeout) as client:
+        work_r = await client.get(f"https://openlibrary.org/works/{work_id}.json")
+
+    if work_r.status_code != 200:
+        raise HTTPException(404, "not found in Open Library")
+
+    w = work_r.json()
+    description = w.get("description", "")
+    if isinstance(description, dict):
+        description = description.get("value", "")
+
+    subjects = (w.get("subjects") or [])[:8]
+    authors_raw = w.get("authors") or []
+    author_keys = [a.get("author", {}).get("key", "") for a in authors_raw]
+    author_name = ""
+    if author_keys:
+        async with _httpx.AsyncClient(timeout=timeout) as client:
+            ar = await client.get(f"https://openlibrary.org{author_keys[0]}.json")
+        if ar.status_code == 200:
+            author_name = ar.json().get("name", "")
+
+    covers = w.get("covers") or []
+    cover_url = f"https://covers.openlibrary.org/b/id/{covers[0]}-L.jpg" if covers else ""
+    title = w.get("title", "")
+
+    goodreads = f"https://www.goodreads.com/search?q={quote_plus(title)}"
+    audible_q = quote_plus(f"{title} {author_name}".strip())
+    audible = f"https://www.audible.de/search?keywords={audible_q}"
+
+    return JSONResponse({
+        "id": f"ol:{work_id}",
+        "media_type": "book",
+        "title": title,
+        "author": author_name,
+        "year": w.get("first_publish_date", ""),
+        "description": description,
+        "overview": description,
+        "subjects": subjects,
+        "genres": subjects[:5],
+        "cover_url": cover_url,
+        "poster_url": cover_url,
+        "backdrop_url": "",
+        "links": {
+            "📖 Goodreads": goodreads,
+            "🎧 Audible": audible,
+            "📚 Open Library": f"https://openlibrary.org/works/{work_id}",
+        },
+        "your_rating": None,
+        "date_read": None,
+    })
+
+
+async def _culture_by_title(media_prefix: str, title: str, api_key: str, timeout) -> JSONResponse:
+    """Search TMDB/OL for a title and return the first result's full detail."""
+    import httpx as _httpx
+
+    if media_prefix == "book":
+        async with _httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.get(
+                "https://openlibrary.org/search.json",
+                params={"q": title, "limit": 1, "fields": "key"}
+            )
+        if r.status_code == 200:
+            docs = r.json().get("docs", [])
+            if docs:
+                work_key = docs[0].get("key", "")
+                work_id = work_key.replace("/works/", "")
+                if work_id:
+                    return await _culture_ol(work_id, timeout)
+        raise HTTPException(404, f"book '{title}' not found")
+
+    kind = "movie" if media_prefix == "film" else "tv"
+    if not api_key:
+        raise HTTPException(503, "TMDB key not configured")
+    endpoint = f"https://api.themoviedb.org/3/search/{'movie' if kind == 'movie' else 'tv'}"
+    async with _httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.get(endpoint, params={"api_key": api_key, "query": title, "page": 1})
+    if r.status_code != 200:
+        raise HTTPException(404, f"'{title}' not found in TMDB")
+    results = r.json().get("results", [])
+    if not results:
+        raise HTTPException(404, f"'{title}' not found in TMDB")
+    tmdb_id = str(results[0]["id"])
+    return await _culture_tmdb(kind, tmdb_id, api_key, timeout)
+
+
+async def _culture_director(name: str, api_key: str, timeout) -> JSONResponse:
+    """Return director detail from TMDB person search."""
+    import httpx as _httpx
+
+    if not api_key:
+        raise HTTPException(503, "TMDB key not configured")
+
+    async with _httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.get(
+            "https://api.themoviedb.org/3/search/person",
+            params={"api_key": api_key, "query": name}
+        )
+    if r.status_code != 200 or not r.json().get("results"):
+        raise HTTPException(404, f"director '{name}' not found")
+
+    person = r.json()["results"][0]
+    person_id = person["id"]
+
+    async with _httpx.AsyncClient(timeout=timeout) as client:
+        detail_r = await client.get(
+            f"https://api.themoviedb.org/3/person/{person_id}",
+            params={"api_key": api_key, "append_to_response": "movie_credits"}
+        )
+
+    if detail_r.status_code != 200:
+        raise HTTPException(404, "director detail not found")
+
+    d = detail_r.json()
+    photo = d.get("profile_path")
+    bio = d.get("biography", "")
+    films = sorted(
+        [f for f in d.get("movie_credits", {}).get("crew", []) if f.get("job") == "Director"],
+        key=lambda f: f.get("vote_count", 0), reverse=True
+    )[:10]
+
+    conn = get_conn()
+    try:
+        your_films_raw = conn.execute("""
+            SELECT m.title, m.year, ui.rating
+            FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+            WHERE m.director=? AND ui.rating IS NOT NULL
+            ORDER BY ui.rating DESC LIMIT 10
+        """, (name,)).fetchall()
+    finally:
+        conn.close()
+
+    your_films = [{"title": r["title"], "year": r["year"], "rating": r["rating"]} for r in your_films_raw]
+
+    from urllib.parse import quote_plus
+    return JSONResponse({
+        "name": name,
+        "photo_url": f"https://image.tmdb.org/t/p/w185{photo}" if photo else "",
+        "birthday": d.get("birthday", ""),
+        "place_of_birth": d.get("place_of_birth", ""),
+        "bio": bio[:600] if bio else "",
+        "top_films": [{"title": f.get("title", ""), "year": (f.get("release_date") or "")[:4]} for f in films[:8]],
+        "your_films": your_films,
+        "your_count": len(your_films),
+        "your_avg": round(sum(f["rating"] for f in your_films) / len(your_films), 1) if your_films else 0,
+        "links": {
+            "🎬 IMDb": f"https://www.imdb.com/find?q={quote_plus(name)}&s=nm",
+            "🎞 Letterboxd": f"https://letterboxd.com/director/{name.lower().replace(' ', '-')}/",
+        },
+    })
 
 
 # ── Brain routes ──────────────────────────────────────────────────────────────
