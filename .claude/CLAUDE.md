@@ -1,4 +1,28 @@
+<!-- project-meta
+schema_version: 1
+slug: observatory
+prefix: ENT
+stack: python-html
+deploy: github-pages
+harness_layers:
+  - playwright
+registry_managed: true
+-->
+
 # Observatory — Standing Instructions
+
+## Ticket prefix
+Prefix: ENT
+Use `/project-ticket ENT-NN: title` to generate tickets.
+Tickets: ~/Documents/AI-projects-personal/todos/ent-nn-slug.md
+
+## Pre-deploy checklist
+- [ ] build passes
+- [ ] npx playwright test passes
+
+## Harness layers
+Layer 2: evals/browser/ (Playwright). Run: `npx playwright test`
+Details: evals/README.md
 
 ## What this is
 
@@ -30,12 +54,25 @@ vercel deploy --prod
 curl -s https://waldo.vanderlore.de/culture/dashboard.html | grep "Profile generated"
 ```
 
+## AI token policy
+
+**Never call the Anthropic API directly** (no `build_profile.py --refresh`). The `anthropic` package is not installed in the venv and API credits cost money.
+
+Instead, **use the current Claude Code session** to generate profile JSON and recommendations in-session, then write them directly to the SQLite DB with a Python script:
+1. Export rated history: `python3 -c "import sqlite3,json; ..."` → `/tmp/ent_signal.json`
+2. Read the data in the Claude session
+3. Generate profile + recs as structured Python dicts
+4. Write to DB with inline Python (no SDK needed)
+5. Run `python3 scripts/build_dashboard.py` to render
+
+The `build_profile.py` script is kept for reference but should not be called — it requires `ANTHROPIC_API_KEY` and the venv doesn't have the `anthropic` package installed.
+
 ## Running locally
 
 ```bash
 ./run.sh --serve          # start server on port 8000, auto-reloads
 ./run.sh                  # ingest all present data sources + build dashboard
-./run.sh --refresh        # same + rebuild AI taste profile (costs ~$0.10)
+# Do NOT use ./run.sh --refresh — use in-session Claude generation instead (see AI token policy above)
 ```
 
 Python venv: `/Users/waldo.vanderhaeghen/Library/Scripts/entertainment-env/`
