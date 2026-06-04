@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>✦ Your Taste Brain</title>
+<title>✦ Your Taste Map</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
@@ -11,15 +11,14 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg: #0f1a0f;
-    --zone-explored: #c8763a;
-    --zone-dim: #1e2e3a;
-    --zone-neighbor: #7ec8e3;
+    --bg: #0b151f;
+    --ocean: #0c1820;
     --text: #f5e8c8;
     --text-muted: #8a9a7a;
-    --panel-bg: #1a2a1a;
     --panel-border: #c8763a;
     --amber-dark: #8b4513;
+    --zone-explored: #c8763a;
+    --zone-neighbor: #7ec8e3;
   }
 
   body {
@@ -32,575 +31,675 @@
 
   header {
     text-align: center;
-    padding: 1.5rem 1rem 0.5rem;
+    padding: 1.2rem 1rem 0.4rem;
   }
   header h1 {
     font-family: 'Cinzel', serif;
-    font-size: clamp(1.1rem, 3vw, 1.8rem);
+    font-size: clamp(1rem, 2.5vw, 1.6rem);
     letter-spacing: 0.08em;
     color: var(--text);
-    opacity: 0.92;
+    opacity: 0.88;
   }
   header .subtitle {
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     color: var(--text-muted);
-    margin-top: 0.25rem;
+    margin-top: 0.2rem;
     font-style: italic;
   }
 
-  #axis-labels {
-    position: relative;
-    width: 100%;
-    max-width: 820px;
-    margin: 0 auto;
-    height: 0;
-  }
-  .axis-label {
-    position: absolute;
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    font-style: italic;
-    letter-spacing: 0.05em;
-  }
-  .axis-x-left  { left: 0.5rem; top: 0.5rem; }
-  .axis-x-right { right: 0.5rem; top: 0.5rem; }
-  .axis-y-top    { left: 50%; transform: translateX(-50%); top: 0.5rem; }
-  .axis-y-bottom { left: 50%; transform: translateX(-50%); bottom: 0.5rem; }
-
-  #brain-container {
+  /* ── Map ── */
+  #map-view {
     display: flex;
     justify-content: center;
-    align-items: flex-start;
-    gap: 1.5rem;
-    padding: 1rem 1rem 2rem;
-    flex-wrap: wrap;
+    padding: 0.5rem 0.5rem 2rem;
   }
-
-  #brain-svg-wrap {
-    position: relative;
+  #map-outer {
+    overflow: hidden;
+    cursor: grab;
+    border-radius: 6px;
     flex: 0 0 auto;
+    position: relative;
   }
-
-  svg#brain {
-    display: block;
-    cursor: pointer;
+  #map-outer:active { cursor: grabbing; }
+  #map-wrap {
+    position: relative;
+    transform-origin: 0 0;
   }
-
-  .zone-cell {
-    transition: opacity 0.2s;
-  }
-  .zone-cell:hover { opacity: 0.85; }
-
-  .zone-label {
-    font-family: 'Cinzel', serif;
-    font-size: 10px;
-    fill: var(--text);
+  #terrain-canvas { display: block; }
+  #map-svg {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
     pointer-events: none;
+  }
+
+  /* SVG text — cartographic style: stroke drawn behind fill */
+  .zone-name {
+    font-family: 'Cinzel', serif;
+    font-weight: 600;
     text-anchor: middle;
     dominant-baseline: middle;
-    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.9));
+    fill: #f5e8c8;
+    paint-order: stroke fill;
+    letter-spacing: 0.07em;
+    pointer-events: none;
   }
-
+  .zone-sub {
+    font-family: 'Crimson Text', serif;
+    font-style: italic;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    fill: rgba(230,210,165,0.88);
+    stroke: rgba(5,12,20,0.82);
+    stroke-width: 2.5px;
+    paint-order: stroke fill;
+    letter-spacing: 0.02em;
+    pointer-events: none;
+  }
+  .zone-item {
+    font-family: 'Crimson Text', serif;
+    font-style: italic;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    paint-order: stroke fill;
+    pointer-events: all;
+    cursor: pointer;
+    transition: opacity 0.12s;
+  }
+  .zone-item:hover { opacity: 1 !important; }
+  .zone-hotspot {
+    fill: transparent;
+    cursor: pointer;
+    pointer-events: all;
+  }
   @keyframes pulse-glow {
-    0%, 100% { stroke-opacity: 0.6; stroke-width: 2.5px; }
+    0%, 100% { stroke-opacity: 0.5; stroke-width: 2.5px; }
     50%       { stroke-opacity: 1;   stroke-width: 4px; }
   }
-
-  .neighbor-highlight {
-    animation: pulse-glow 2s ease-in-out infinite;
-  }
-
-  /* ── Detail panel ─────────────────────────────────── */
-  #detail {
-    flex: 0 0 300px;
-    min-height: 400px;
-    background: var(--panel-bg);
-    border: 1px solid var(--panel-border);
-    border-radius: 8px;
-    padding: 1.2rem;
-    display: none;
-    position: relative;
-    overflow: hidden;
-  }
-  #detail.visible { display: block; }
-
-  #detail-art {
-    position: absolute;
-    inset: 0;
-    background-size: cover;
-    background-position: center;
-    opacity: 0.18;
-    filter: sepia(0.4) hue-rotate(20deg) saturate(1.4) brightness(0.88) contrast(1.1);
-    transition: opacity 0.8s;
+  .zone-selected-ring {
+    fill: none;
+    stroke: #c8763a;
+    animation: pulse-glow 2.2s ease-in-out infinite;
     pointer-events: none;
-    border-radius: 8px;
   }
 
-  #detail-content {
-    position: relative;
+  /* ── Detail drawer ── */
+  #detail-drawer {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    max-height: 60vh;
+    background: rgba(7, 14, 22, 0.97);
+    backdrop-filter: blur(14px);
+    border-top: 1px solid var(--panel-border);
+    transform: translateY(100%);
+    transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+    overflow-y: auto;
+    z-index: 50;
+  }
+  #detail-drawer.open { transform: translateY(0); }
+
+  #drawer-header {
+    position: sticky;
+    top: 0;
+    background: rgba(7, 14, 22, 0.98);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.8rem 1.5rem 0.6rem;
+    border-bottom: 1px solid rgba(200,118,58,0.22);
     z-index: 1;
   }
-
-  #detail h2 {
-    font-family: 'Cinzel', serif;
-    font-size: 1rem;
-    color: var(--panel-border);
-    margin-bottom: 0.4rem;
-    line-height: 1.3;
-  }
-
-  .engagement-bar-wrap {
-    margin: 0.6rem 0;
-  }
-  .engagement-bar-label {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    margin-bottom: 2px;
-  }
-  .engagement-bar {
-    height: 6px;
-    background: #2a3a2a;
-    border-radius: 3px;
-    overflow: hidden;
-  }
-  .engagement-bar-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--amber-dark), var(--zone-explored));
-    border-radius: 3px;
-    transition: width 0.6s ease;
-  }
-
-  .exemplars {
-    font-size: 0.78rem;
-    color: var(--text-muted);
-    margin: 0.5rem 0;
-    font-style: italic;
-  }
-
-  .posters-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
-    margin-top: 0.8rem;
-  }
-  .poster-card {
-    aspect-ratio: 2/3;
-    border-radius: 4px;
-    overflow: hidden;
-    background: #2a3a2a;
-    position: relative;
-  }
-  .poster-card img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    filter: sepia(0.4) hue-rotate(20deg) saturate(1.4) brightness(0.88) contrast(1.1);
-    display: block;
-  }
-  .poster-card .poster-title {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    padding: 4px;
-    font-size: 0.6rem;
-    font-family: 'Cinzel', serif;
-    color: var(--text);
-    background: rgba(15, 26, 15, 0.7);
-    line-height: 1.2;
-  }
-
-  .neighbors-section {
-    margin-top: 0.9rem;
-    border-top: 1px solid #2a3a2a;
-    padding-top: 0.7rem;
-  }
-  .neighbors-section h3 {
-    font-family: 'Cinzel', serif;
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    letter-spacing: 0.05em;
-    margin-bottom: 0.4rem;
-    text-transform: uppercase;
-  }
-  .neighbor-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .neighbor-chip {
-    background: #0f200f;
-    border: 1px solid var(--zone-neighbor);
-    color: var(--zone-neighbor);
-    font-size: 0.7rem;
-    padding: 2px 8px;
-    border-radius: 20px;
-    cursor: pointer;
-    transition: background 0.15s;
-  }
-  .neighbor-chip:hover { background: #1a3a3a; }
-
-  .temporal-section {
-    margin-top: 0.8rem;
-  }
-  .temporal-section h3 {
-    font-family: 'Cinzel', serif;
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    letter-spacing: 0.05em;
-    margin-bottom: 0.4rem;
-    text-transform: uppercase;
-  }
-  .temporal-bars {
-    display: flex;
-    gap: 4px;
-    align-items: flex-end;
-    height: 40px;
-  }
-  .temporal-bar-wrap {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    height: 100%;
-  }
-  .temporal-bar {
-    width: 100%;
-    background: var(--zone-explored);
-    border-radius: 2px 2px 0 0;
-    opacity: 0.7;
-    min-height: 2px;
-  }
-  .temporal-bar-label {
-    font-size: 0.55rem;
-    color: var(--text-muted);
-    white-space: nowrap;
-  }
-
-  #generate-art-btn {
-    margin-top: 0.9rem;
-    width: 100%;
+  #back-btn {
     background: transparent;
     border: 1px solid var(--panel-border);
     color: var(--panel-border);
     font-family: 'Cinzel', serif;
-    font-size: 0.72rem;
-    padding: 6px 12px;
+    font-size: 0.7rem;
+    padding: 5px 16px;
     border-radius: 4px;
     cursor: pointer;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
     transition: background 0.15s, color 0.15s;
   }
-  #generate-art-btn:hover { background: var(--panel-border); color: var(--bg); }
-  #generate-art-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  #back-btn:hover { background: var(--panel-border); color: var(--bg); }
+  #detail-title {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(0.9rem, 2.5vw, 1.5rem);
+    color: var(--panel-border);
+    letter-spacing: 0.06em;
+  }
+  #detail-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.2rem 2rem;
+    padding: 1.2rem 1.5rem 2rem;
+  }
+  @media (max-width: 600px) { #detail-content { grid-template-columns: 1fr; } }
+
+  .info-block { display: flex; flex-direction: column; gap: 0.35rem; }
+  .info-block-full { grid-column: 1 / -1; }
+  .info-heading {
+    font-family: 'Cinzel', serif;
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    margin-bottom: 0.2rem;
+  }
+  .engagement-bar-label {
+    display: flex; justify-content: space-between;
+    font-size: 0.75rem; color: var(--text-muted);
+  }
+  .engagement-bar {
+    height: 6px; background: #1a2a1a;
+    border-radius: 3px; overflow: hidden; margin-top: 3px;
+  }
+  .engagement-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--amber-dark), var(--zone-explored));
+    border-radius: 3px; transition: width 0.6s ease;
+  }
+  .item-tags { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+  .item-tag { font-family: 'Crimson Text', serif; font-style: italic; font-size: 0.9rem; }
+  .item-tag.music { color: #d4a96a; }
+  .item-tag.film  { color: #7ec8e3; }
+  .item-tag.book  { color: #9abf7a; }
+  .temporal-bars { display: flex; gap: 4px; align-items: flex-end; height: 48px; }
+  .temporal-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; height: 100%; }
+  .temporal-bar { width: 100%; background: var(--zone-explored); border-radius: 2px 2px 0 0; opacity: 0.7; min-height: 2px; }
+  .temporal-bar-label { font-size: 0.55rem; color: var(--text-muted); white-space: nowrap; }
+  .posters-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+  .poster-card { aspect-ratio: 2/3; border-radius: 4px; overflow: hidden; background: #1a2a1a; position: relative; }
+  .poster-card img { width: 100%; height: 100%; object-fit: cover; display: block; filter: sepia(0.3) hue-rotate(20deg) saturate(1.3) brightness(0.9) contrast(1.1); }
+  .poster-card .poster-title { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 3px; font-size: 0.55rem; font-family: 'Cinzel', serif; color: var(--text); background: rgba(10,20,30,0.72); line-height: 1.2; }
+  .neighbor-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .neighbor-chip { background: #0a1a1a; border: 1px solid var(--zone-neighbor); color: var(--zone-neighbor); font-size: 0.7rem; padding: 3px 10px; border-radius: 20px; cursor: pointer; transition: background 0.15s; }
+  .neighbor-chip:hover { background: #142a2a; }
 
   #loading-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(15,26,15,0.6);
-    z-index: 100;
-    align-items: center;
-    justify-content: center;
+    display: none; position: fixed; inset: 0;
+    background: rgba(10,20,28,0.6); z-index: 100;
+    align-items: center; justify-content: center;
   }
   #loading-overlay.visible { display: flex; }
-  #loading-overlay span {
-    font-family: 'Cinzel', serif;
-    color: var(--text);
-    font-size: 1.1rem;
-    letter-spacing: 0.1em;
-  }
+  #loading-overlay span { font-family: 'Cinzel', serif; color: var(--text); font-size: 1.1rem; letter-spacing: 0.1em; }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>✦ Your Taste Brain · 2014–2026</h1>
+  <h1>✦ Your Taste Map · 2014–2026</h1>
   <p class="subtitle">12 years of Spotify · Netflix · IMDb · Goodreads</p>
 </header>
 
 <div id="loading-overlay"><span>Loading…</span></div>
 
-<div id="brain-container">
-  <div id="brain-svg-wrap">
-    <div id="axis-labels">
-      <span class="axis-label axis-x-left">Intimate ←</span>
-      <span class="axis-label axis-x-right">→ Epic</span>
-    </div>
-    <svg id="brain"></svg>
-  </div>
-
-  <div id="detail">
-    <div id="detail-art"></div>
-    <div id="detail-content">
-      <h2 id="detail-title"></h2>
-      <div class="engagement-bar-wrap">
-        <div class="engagement-bar-label">
-          <span id="detail-engagement-label">Exploration</span>
-          <span id="detail-engagement-pct"></span>
-        </div>
-        <div class="engagement-bar"><div class="engagement-bar-fill" id="detail-bar"></div></div>
-      </div>
-      <p class="exemplars" id="detail-exemplars"></p>
-      <div class="posters-grid" id="detail-posters"></div>
-      <div class="temporal-section" id="detail-temporal"></div>
-      <div class="neighbors-section">
-        <h3>Unexplored nearby</h3>
-        <div class="neighbor-chips" id="detail-neighbors"></div>
-      </div>
-      <button id="generate-art-btn">✦ Generate atmospheric art</button>
+<div id="map-view">
+  <div id="map-outer">
+    <div id="map-wrap">
+      <canvas id="terrain-canvas"></canvas>
+      <svg id="map-svg"></svg>
     </div>
   </div>
 </div>
 
+<div id="detail-drawer">
+  <div id="drawer-header">
+    <button id="back-btn" onclick="closeDrawer()">← Map</button>
+    <h2 id="detail-title"></h2>
+  </div>
+  <div id="detail-content">
+    <div class="info-block">
+      <div class="info-heading">Engagement</div>
+      <div class="engagement-bar-label">
+        <span id="detail-engagement-label">—</span>
+        <span id="detail-engagement-pct"></span>
+      </div>
+      <div class="engagement-bar"><div class="engagement-bar-fill" id="detail-bar" style="width:0%"></div></div>
+    </div>
+    <div class="info-block" id="detail-temporal-block">
+      <div class="info-heading">Over time</div>
+      <div class="temporal-bars" id="detail-temporal"></div>
+    </div>
+    <div class="info-block info-block-full">
+      <div class="info-heading">Artists · Films · Books</div>
+      <div class="item-tags" id="detail-items"></div>
+    </div>
+    <div class="info-block info-block-full">
+      <div class="info-heading">Top rated</div>
+      <div class="posters-grid" id="detail-posters"></div>
+    </div>
+    <div class="info-block">
+      <div class="info-heading">Nearby territories</div>
+      <div class="neighbor-chips" id="detail-neighbors"></div>
+    </div>
+
+  </div>
+</div>
+
 <script>
-const W = Math.min(window.innerWidth * 0.95, 820);
-const H = W * 0.72;
-const PAD = 28;
+// ── Dimensions ────────────────────────────────────────────────────────────────
+const W = Math.min(window.innerWidth * 0.98, 1280);
+const H = W * 0.62;
 
 let zonesData = [];
 let maxEngagement = 1;
 let selectedZone = null;
+let zonePolygons = {};
+let zoomBehavior;
 
-const svg = d3.select('#brain')
-  .attr('width', W)
-  .attr('height', H);
+// Per-zone base colors (dark base + lighter version for radial gradient center)
+const ZONE_BASE = {
+  SOUL_JAZZ:       ['#3d2510', '#7a4e2a'],
+  FOLK_SINGER:     ['#1a3016', '#3d6030'],
+  ELECTRONIC_HIP:  ['#0e2235', '#2a4a65'],
+  INDIE_WORLD:     ['#2a1f35', '#5a4070'],
+  DRAMA:           ['#2a1010', '#6a2525'],
+  CRIME_THRILLER:  ['#0a1515', '#253535'],
+  ARTHOUSE:        ['#1a2010', '#3a4520'],
+  SCI_FI:          ['#061828', '#1a4560'],
+  FANTASY_COMEDY:  ['#251808', '#5a3d18'],
+  ACTION_ADV:      ['#2a0e08', '#6a2018'],
+  ANIMATION:       ['#0a2018', '#204535'],
+  HISTORY:         ['#1e1508', '#4a3618'],
+};
+const TYPE_COLORS = { music: '#d4a96a', film: '#7ec8e3', book: '#9abf7a' };
 
-// Defs for glow filter
-const defs = svg.append('defs');
-const glow = defs.append('filter').attr('id', 'glow').attr('x', '-50%').attr('y', '-50%').attr('width', '200%').attr('height', '200%');
-glow.append('feGaussianBlur').attr('stdDeviation', '4').attr('result', 'blur');
-const feMerge = glow.append('feMerge');
-feMerge.append('feMergeNode').attr('in', 'blur');
-feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+function clamp(a, v, b) { return Math.max(a, Math.min(b, v)); }
+function scaleX(x) { return (x / 100) * W; }
+function scaleY(y) { return ((100 - y) / 100) * H; }
 
-const glowStrong = defs.append('filter').attr('id', 'glow-strong').attr('x', '-80%').attr('y', '-80%').attr('width', '260%').attr('height', '260%');
-glowStrong.append('feGaussianBlur').attr('stdDeviation', '8').attr('result', 'blur');
-const feMerge2 = glowStrong.append('feMerge');
-feMerge2.append('feMergeNode').attr('in', 'blur');
-feMerge2.append('feMergeNode').attr('in', 'SourceGraphic');
-
-// Background
-svg.append('rect').attr('width', W).attr('height', H).attr('fill', '#0f1a0f');
-
-// Subtle grid lines
-const gridG = svg.append('g').attr('opacity', 0.06);
-gridG.append('line').attr('x1', W/2).attr('y1', PAD).attr('x2', W/2).attr('y2', H - PAD).attr('stroke', '#f5e8c8').attr('stroke-dasharray', '4,4');
-gridG.append('line').attr('x1', PAD).attr('y1', H/2).attr('x2', W - PAD).attr('y2', H/2).attr('stroke', '#f5e8c8').attr('stroke-dasharray', '4,4');
-
-// Axis labels on SVG
-svg.append('text').attr('x', PAD + 4).attr('y', H/2).attr('fill', '#8a9a7a').attr('font-size', 9).attr('font-style', 'italic').attr('transform', `rotate(-90, ${PAD+4}, ${H/2})`).attr('text-anchor', 'middle').text('Visceral ← → Intellectual');
-
-const zonesG = svg.append('g');
-const labelsG = svg.append('g');
-
-function scaleX(x) { return PAD + (x / 100) * (W - 2 * PAD); }
-function scaleY(y) { return PAD + ((100 - y) / 100) * (H - 2 * PAD); }
-
-function engagementColor(zone) {
-  const t = zone.engagement.total / maxEngagement;
-  return d3.interpolateRgb('#1e2e3a', '#c8763a')(Math.pow(t, 0.5));
-}
-
-function renderBrain(zones) {
-  zonesData = zones;
-  maxEngagement = d3.max(zones, d => d.engagement.total) || 1;
-
-  const points = zones.map(z => [scaleX(z.x), scaleY(z.y)]);
-  const voronoi = d3.Delaunay.from(points).voronoi([0, 0, W, H]);
-
-  zonesG.selectAll('*').remove();
-  labelsG.selectAll('*').remove();
-
-  zones.forEach((zone, i) => {
-    const cell = voronoi.renderCell(i);
-    const cx = scaleX(zone.x);
-    const cy = scaleY(zone.y);
-    const t = zone.engagement.total / maxEngagement;
-    const glowRadius = 2 + t * 10;
-
-    const g = zonesG.append('g').attr('class', 'zone-cell').attr('data-id', zone.id);
-
-    // Main fill
-    g.append('path')
-      .attr('d', cell)
-      .attr('fill', engagementColor(zone))
-      .attr('fill-opacity', 0.55 + t * 0.3)
-      .attr('stroke', '#0f1a0f')
-      .attr('stroke-width', 2)
-      .attr('filter', t > 0.3 ? 'url(#glow)' : null)
-      .attr('class', 'zone-path')
-      .on('click', () => selectZone(zone));
-
-    // Engagement dot
-    g.append('circle')
-      .attr('cx', cx).attr('cy', cy)
-      .attr('r', 3 + t * 5)
-      .attr('fill', '#f5e8c8')
-      .attr('opacity', 0.35)
-      .attr('pointer-events', 'none');
-
-    // Label
-    labelsG.append('text')
-      .attr('class', 'zone-label')
-      .attr('x', cx).attr('y', cy)
-      .text(zone.label.split(' & ')[0].split(',')[0]);
+// ── Image preload ─────────────────────────────────────────────────────────────
+const loadedImages = {};
+function preloadImages(zones) {
+  zones.forEach(zone => {
+    const img = new Image();
+    img.onload = () => { loadedImages[zone.id] = img; renderTerrain(zones); };
+    img.src = `/static/map-pieces/${zone.id}.png`;
   });
 }
 
-function highlightNeighbors(zone) {
-  zonesG.selectAll('.zone-path').each(function() {
-    const id = this.parentNode.dataset.id;
-    if (zone.neighbors.includes(id)) {
-      d3.select(this)
-        .attr('stroke', '#7ec8e3')
-        .attr('stroke-width', 3)
-        .attr('class', 'zone-path neighbor-highlight');
-    } else {
-      d3.select(this)
-        .attr('stroke', '#0f1a0f')
-        .attr('stroke-width', 2)
-        .attr('class', 'zone-path');
+// ── Voronoi ───────────────────────────────────────────────────────────────────
+function buildVoronoi(zones) {
+  const pts = zones.map(z => [scaleX(z.x), scaleY(z.y)]);
+  const delaunay = d3.Delaunay.from(pts);
+  const voronoi  = delaunay.voronoi([0, 0, W, H]);
+  zones.forEach((z, i) => {
+    const poly = voronoi.cellPolygon(i);
+    if (poly) zonePolygons[z.id] = poly;
+  });
+}
+
+// ── Canvas terrain ────────────────────────────────────────────────────────────
+function renderTerrain(zones) {
+  const canvas = document.getElementById('terrain-canvas');
+  const ctx = canvas.getContext('2d');
+
+  // Ocean
+  ctx.fillStyle = '#0c1820';
+  ctx.fillRect(0, 0, W, H);
+
+  zones.forEach(zone => {
+    const poly = zonePolygons[zone.id];
+    if (!poly) return;
+    const [dark, light] = ZONE_BASE[zone.id] || ['#222', '#444'];
+    const centroid = d3.polygonCentroid(poly);
+    const area = Math.abs(d3.polygonArea(poly));
+    const r = Math.sqrt(area / Math.PI);
+
+    ctx.save();
+
+    // Clip to polygon
+    ctx.beginPath();
+    poly.forEach(([x, y], j) => j === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+    ctx.closePath();
+    ctx.clip();
+
+    // Radial gradient fill: lighter center → darker edges (depth)
+    const grad = ctx.createRadialGradient(centroid[0], centroid[1], 0, centroid[0], centroid[1], r * 1.6);
+    grad.addColorStop(0,   light);
+    grad.addColorStop(0.6, dark);
+    grad.addColorStop(1,   dark);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Island image as terrain texture
+    const img = loadedImages[zone.id];
+    if (img) {
+      const imgSize = r * 2.6;
+      ctx.globalAlpha = 0.62;
+      ctx.drawImage(img, centroid[0] - imgSize / 2, centroid[1] - imgSize / 2, imgSize, imgSize);
+      ctx.globalAlpha = 1;
     }
+
+    // Inner-edge vignette: darken polygon border for zone depth
+    ctx.shadowColor = 'rgba(0,0,0,0.65)';
+    ctx.shadowBlur  = 30;
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth   = 20;
+    ctx.stroke();
+    ctx.shadowColor = 'transparent';
+
+    ctx.restore();
   });
+
+  // Voronoi border lines — parchment ink
+  ctx.save();
+  zones.forEach(zone => {
+    const poly = zonePolygons[zone.id];
+    if (!poly) return;
+    ctx.beginPath();
+    poly.forEach(([x, y], j) => j === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+    ctx.closePath();
+    ctx.strokeStyle = 'rgba(210,175,120,0.32)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  });
+  ctx.restore();
+
+  // Frame
+  ctx.save();
+  ctx.strokeStyle = 'rgba(210,175,120,0.4)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, W - 2, H - 2);
+  ctx.restore();
+
+  drawCompassRose(ctx, W - 58, H - 58, 32);
 }
 
-async function selectZone(zone) {
-  selectedZone = zone;
-  highlightNeighbors(zone);
-  showDetail(zone);
-  await loadPosters(zone);
+function drawCompassRose(ctx, cx, cy, r) {
+  const gold = '#c8a96a', dk = '#7a5c2a', cream = '#f5e8c8';
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, r + 5, 0, Math.PI * 2);
+  ctx.fillStyle = '#0c1820'; ctx.fill();
+  ctx.strokeStyle = gold; ctx.lineWidth = 0.7; ctx.globalAlpha = 0.7; ctx.stroke();
+  ctx.globalAlpha = 1;
+  [0,45,90,135,180,225,270,315].forEach((deg, i) => {
+    const rad = (deg - 90) * Math.PI / 180;
+    const tip = r * (i % 2 === 0 ? 1.0 : 0.58);
+    const side = r * 0.16;
+    const tx = cx + Math.cos(rad) * tip, ty = cy + Math.sin(rad) * tip;
+    const lx = Math.cos(rad - Math.PI/2) * side, ly = Math.sin(rad - Math.PI/2) * side;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + lx, cy + ly); ctx.lineTo(tx, ty); ctx.closePath();
+    ctx.fillStyle = i % 2 === 0 ? cream : gold; ctx.globalAlpha = 0.85; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.lineTo(cx - lx, cy - ly); ctx.closePath();
+    ctx.fillStyle = dk; ctx.fill(); ctx.globalAlpha = 1;
+  });
+  ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI*2); ctx.fillStyle = gold; ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy, 1.5, 0, Math.PI*2); ctx.fillStyle = cream; ctx.fill();
+  // N/S/E/W
+  ctx.font = '600 7px Cinzel, serif'; ctx.fillStyle = gold; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  [['N',0,-1],['S',0,1],['E',1,0],['W',-1,0]].forEach(([l,dx,dy]) =>
+    ctx.fillText(l, cx + dx*(r+12), cy + dy*(r+12)));
+  ctx.restore();
 }
 
-function showDetail(zone) {
-  const panel = document.getElementById('detail');
-  panel.classList.add('visible');
+// ── SVG labels ────────────────────────────────────────────────────────────────
+function renderLabels(zones) {
+  const svg = d3.select('#map-svg');
+  svg.selectAll('*').remove();
 
-  document.getElementById('detail-title').textContent = `✦ ${zone.label}`;
-
-  const pct = Math.round(zone.engagement.total / maxEngagement * 100);
-  document.getElementById('detail-engagement-pct').textContent = `${pct}%`;
-  document.getElementById('detail-bar').style.width = `${pct}%`;
-
-  const breakdown = [];
-  if (zone.engagement.music > 0) breakdown.push(`${Math.round(zone.engagement.music)}h music`);
-  if (zone.engagement.film > 0)  breakdown.push(`${Math.round(zone.engagement.film)} film`);
-  if (zone.engagement.book > 0)  breakdown.push(`${zone.engagement.book.toFixed(1)} book`);
-  document.getElementById('detail-engagement-label').textContent = breakdown.join(' · ') || 'Engagement';
-
-  document.getElementById('detail-exemplars').textContent = zone.exemplars.join(' · ');
-
-  // Temporal bars
-  const temporal = zone.temporal || {};
-  const tempKeys = Object.keys(temporal).sort();
-  const tempSection = document.getElementById('detail-temporal');
-  if (tempKeys.length > 0) {
-    const maxT = Math.max(...Object.values(temporal));
-    tempSection.innerHTML = `
-      <h3>Over time</h3>
-      <div class="temporal-bars">
-        ${tempKeys.map(k => `
-          <div class="temporal-bar-wrap">
-            <div style="flex:1; display:flex; align-items:flex-end; width:100%">
-              <div class="temporal-bar" style="height:${Math.max(4, (temporal[k]/maxT)*36)}px"></div>
-            </div>
-            <span class="temporal-bar-label">${k.replace('-', '–')}</span>
-          </div>
-        `).join('')}
-      </div>`;
-  } else {
-    tempSection.innerHTML = '';
+  // Subtle lat/lon grid
+  const g = svg.append('g');
+  for (let i = 1; i < 5; i++) {
+    const y = (i / 5) * H;
+    g.append('line').attr('x1',0).attr('y1',y).attr('x2',W).attr('y2',y)
+      .attr('stroke','rgba(180,160,120,0.04)').attr('stroke-dasharray','3,8');
+  }
+  for (let i = 1; i < 7; i++) {
+    const x = (i / 7) * W;
+    g.append('line').attr('x1',x).attr('y1',0).attr('x2',x).attr('y2',H)
+      .attr('stroke','rgba(180,160,120,0.04)').attr('stroke-dasharray','3,8');
   }
 
-  // Neighbors
-  const nChips = document.getElementById('detail-neighbors');
-  nChips.innerHTML = zone.neighbors.map(nid => {
-    const nzone = zonesData.find(z => z.id === nid);
-    return `<span class="neighbor-chip" data-id="${nid}">${nzone ? nzone.label.split(' & ')[0].split(',')[0] : nid}</span>`;
+  zones.forEach(zone => {
+    const poly = zonePolygons[zone.id];
+    if (!poly) return;
+
+    const centroid = d3.polygonCentroid(poly);
+    const area     = Math.abs(d3.polygonArea(poly));
+    const side     = Math.sqrt(area);
+
+    const nameFz = clamp(28, side * 0.175, 64);
+    const subFz  = clamp(11, side * 0.085, 22);
+    const itemFz = clamp(9,  side * 0.060, 15);
+
+    const words   = zone.label.split(/[,&]+/).map(s => s.trim()).filter(Boolean);
+    const main    = words[0].toUpperCase();
+    const sub     = words.slice(1).join(' & ');
+
+    const nameY = centroid[1] - (sub ? subFz * 0.65 : 0);
+
+    // Zone name
+    svg.append('text')
+      .attr('class', 'zone-name')
+      .attr('x', centroid[0]).attr('y', nameY)
+      .attr('font-size', nameFz)
+      .attr('stroke', 'rgba(5,12,20,0.88)')
+      .attr('stroke-width', Math.max(3, nameFz * 0.13))
+      .text(main);
+
+    if (sub) {
+      svg.append('text')
+        .attr('class', 'zone-sub')
+        .attr('x', centroid[0]).attr('y', nameY + nameFz * 0.72)
+        .attr('font-size', subFz)
+        .text(sub);
+    }
+
+    // Item labels — spiral placement within polygon
+    placeItems(svg, zone, poly, centroid, nameFz, subFz, itemFz);
+
+    // Polygon hotspot
+    svg.append('path')
+      .attr('class', 'zone-hotspot')
+      .attr('d', 'M' + poly.map(p => p.join(',')).join('L') + 'Z')
+      .on('click', () => selectZone(zone));
+
+    // Selection ring
+    svg.append('path')
+      .attr('class', 'zone-selected-ring')
+      .attr('data-id', zone.id)
+      .attr('d', 'M' + poly.map(p => p.join(',')).join('L') + 'Z')
+      .style('display', 'none');
+  });
+}
+
+function placeItems(svg, zone, poly, centroid, nameFz, subFz, itemFz) {
+  const items = (zone.labels || []).slice(0, 14);
+  const sub = zone.label.split(/[,&]+/).slice(1).join('').trim();
+  const nameW = zone.label.split(/[,&]/)[0].trim().length * nameFz * 0.6;
+
+  // Reserved space: zone name + sub-genre block
+  const placed = [
+    { x: centroid[0], y: centroid[1] - (sub ? subFz * 0.65 : 0), w: nameW, h: nameFz * 1.3 },
+  ];
+  if (sub) {
+    placed.push({ x: centroid[0], y: centroid[1] + nameFz * 0.42, w: sub.length * subFz * 0.44, h: subFz * 1.3 });
+  }
+
+  let angle = 1.1;
+  let radius = nameFz * 0.72;
+
+  items.forEach((item, idx) => {
+    const fz = clamp(9, itemFz * (0.68 + item.weight * 0.62), itemFz * 1.28);
+    const tw = Math.min(item.text.length * fz * 0.41, 170);
+    const th = fz * 1.35;
+    let px = centroid[0], py = centroid[1], found = false;
+
+    for (let att = 0; att < 90 && !found; att++) {
+      const tx = centroid[0] + Math.cos(angle) * radius;
+      const ty = centroid[1] + Math.sin(angle) * radius * 0.72;
+
+      if (d3.polygonContains(poly, [tx, ty]) &&
+          !placed.some(p => Math.abs(tx - p.x) < (tw/2 + p.w/2 + 5) &&
+                             Math.abs(ty - p.y) < (th/2 + p.h/2 + 4))) {
+        px = tx; py = ty; found = true;
+      }
+      angle += 0.58;
+      if (att % 7 === 6) radius += fz * 0.85;
+    }
+
+    if (!found) return;
+    placed.push({ x: px, y: py, w: tw, h: th });
+
+    svg.append('text')
+      .attr('class', 'zone-item')
+      .attr('data-zone', zone.id)
+      .attr('x', px).attr('y', py)
+      .attr('font-size', fz)
+      .attr('fill', TYPE_COLORS[item.type] || '#c8b89a')
+      .attr('stroke', 'rgba(5,12,20,0.75)')
+      .attr('stroke-width', Math.max(1.5, fz * 0.1))
+      .attr('opacity', 0.68 + item.weight * 0.32)
+      .text(item.text.length > 26 ? item.text.slice(0, 25) + '…' : item.text)
+      .on('click', () => selectZone(zone));
+  });
+}
+
+// ── Zoom & selection ──────────────────────────────────────────────────────────
+function selectZone(zone) {
+  selectedZone = zone;
+
+  d3.selectAll('.zone-selected-ring').style('display', 'none');
+  d3.select(`.zone-selected-ring[data-id="${zone.id}"]`).style('display', null);
+
+  const poly = zonePolygons[zone.id];
+  if (poly) {
+    const centroid = d3.polygonCentroid(poly);
+    const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]);
+    const bw = d3.max(xs) - d3.min(xs), bh = d3.max(ys) - d3.min(ys);
+    const scale = Math.min(W / bw * 0.6, H / bh * 0.6, 5.5);
+    const tx = W / 2 - centroid[0] * scale;
+    const ty = H / 2 - centroid[1] * scale;
+    d3.select('#map-outer')
+      .transition().duration(750).ease(d3.easeCubicInOut)
+      .call(zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+  }
+
+  setTimeout(() => {
+    fillDrawer(zone);
+    document.getElementById('detail-drawer').classList.add('open');
+  }, 500);
+}
+
+function closeDrawer() {
+  document.getElementById('detail-drawer').classList.remove('open');
+  d3.select('#map-outer')
+    .transition().duration(650).ease(d3.easeCubicInOut)
+    .call(zoomBehavior.transform, d3.zoomIdentity);
+  setTimeout(() => {
+    d3.selectAll('.zone-selected-ring').style('display', 'none');
+    selectedZone = null;
+  }, 400);
+}
+
+// ── Drawer content ────────────────────────────────────────────────────────────
+function fillDrawer(zone) {
+  document.getElementById('detail-title').textContent = zone.label;
+
+  const pct = Math.round(zone.engagement.total / maxEngagement * 100);
+  document.getElementById('detail-engagement-pct').textContent = pct + '%';
+  document.getElementById('detail-bar').style.width = pct + '%';
+  const bd = [];
+  if (zone.engagement.music > 0) bd.push(Math.round(zone.engagement.music) + 'h music');
+  if (zone.engagement.film  > 0) bd.push(Math.round(zone.engagement.film)  + ' film pts');
+  if (zone.engagement.book  > 0) bd.push(zone.engagement.book.toFixed(1)   + ' book');
+  document.getElementById('detail-engagement-label').textContent = bd.join(' · ') || '—';
+
+  const temporal = zone.temporal || {};
+  const tk = Object.keys(temporal).sort();
+  const tempEl = document.getElementById('detail-temporal');
+  const tempBl = document.getElementById('detail-temporal-block');
+  if (tk.length) {
+    const maxT = Math.max(...Object.values(temporal));
+    tempEl.innerHTML = tk.map(k => `
+      <div class="temporal-bar-wrap">
+        <div style="flex:1;display:flex;align-items:flex-end;width:100%">
+          <div class="temporal-bar" style="height:${Math.max(3,(temporal[k]/maxT)*44)}px"></div>
+        </div>
+        <span class="temporal-bar-label">${k.replace('-','–')}</span>
+      </div>`).join('');
+    tempBl.style.display = '';
+  } else {
+    tempBl.style.display = 'none';
+  }
+
+  document.getElementById('detail-items').innerHTML = (zone.labels || []).map(item =>
+    `<span class="item-tag ${item.type}">${item.text}</span>`).join('');
+
+  document.getElementById('detail-posters').innerHTML = (zone.top_items || []).slice(0, 8).map(item =>
+    `<div class="poster-card" data-title="${item.title}">
+      <span class="poster-title">${item.title}</span>
+    </div>`).join('');
+
+  document.getElementById('detail-neighbors').innerHTML = (zone.neighbors || []).map(nid => {
+    const nz = zonesData.find(z => z.id === nid);
+    return `<span class="neighbor-chip" data-id="${nid}">${nz ? nz.label.split(/[,&]/)[0].trim() : nid}</span>`;
   }).join('');
-  nChips.querySelectorAll('.neighbor-chip').forEach(el => {
+  document.querySelectorAll('.neighbor-chip').forEach(el => {
     el.addEventListener('click', () => {
-      const nzone = zonesData.find(z => z.id === el.dataset.id);
-      if (nzone) selectZone(nzone);
+      const nz = zonesData.find(z => z.id === el.dataset.id);
+      if (nz) selectZone(nz);
     });
   });
 
-  // Poster placeholders
-  document.getElementById('detail-posters').innerHTML =
-    zone.top_items.slice(0, 8).map(item =>
-      `<div class="poster-card" data-src="${item.source}" data-srcid="${item.source_id || ''}" data-title="${item.title}">
-        <span class="poster-title">${item.title}</span>
-      </div>`
-    ).join('');
-
-  // Art button
-  const artBtn = document.getElementById('generate-art-btn');
-  if (zone.art_cached) {
-    document.getElementById('detail-art').style.backgroundImage = `url('/brain/art/${zone.id}')`;
-    document.getElementById('detail-art').style.opacity = '0.22';
-    artBtn.textContent = '✦ Regenerate art';
-  } else {
-    document.getElementById('detail-art').style.backgroundImage = '';
-    document.getElementById('detail-art').style.opacity = '0.18';
-    artBtn.textContent = '✦ Generate atmospheric art';
-  }
-  artBtn.disabled = false;
-  artBtn.onclick = () => generateArt(zone);
+  loadPosters(zone);
 }
 
 async function loadPosters(zone) {
-  const posters = document.getElementById('detail-posters');
   try {
     const res = await fetch(`/api/brain/zone/${zone.id}/posters`);
     if (!res.ok) return;
     const items = await res.json();
+    const grid = document.getElementById('detail-posters');
     items.forEach((item, i) => {
-      const card = posters.children[i];
+      const card = grid.children[i];
       if (!card || !item.poster_url) return;
       card.innerHTML = `<img src="${item.poster_url}" alt="${item.title}" loading="lazy"
         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
         <span class="poster-title" style="display:none">${item.title}</span>`;
     });
-  } catch (e) {
-    console.warn('Poster fetch failed:', e);
-  }
+  } catch (e) { /* silent */ }
 }
 
-async function generateArt(zone) {
-  const btn = document.getElementById('generate-art-btn');
-  btn.disabled = true;
-  btn.textContent = '✦ Conjuring…';
-  try {
-    const res = await fetch(`/api/brain/zone/${zone.id}/art`, { method: 'POST' });
-    const data = await res.json();
-    if (data.art_url) {
-      const art = document.getElementById('detail-art');
-      art.style.backgroundImage = `url('${data.art_url}?t=${Date.now()}')`;
-      art.style.opacity = '0.22';
-      zone.art_cached = true;
-      btn.textContent = '✦ Regenerate art';
-    } else {
-      btn.textContent = '✦ No image key configured';
-    }
-  } catch (e) {
-    btn.textContent = '✦ Failed — retry?';
-  }
-  btn.disabled = false;
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+function renderBrain(zones) {
+  zonesData = zones;
+  maxEngagement = d3.max(zones, d => d.engagement.total) || 1;
+
+  const canvas = document.getElementById('terrain-canvas');
+  canvas.width  = W;  canvas.height = H;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+
+  d3.select('#map-svg').attr('width', W).attr('height', H);
+  d3.select('#map-wrap').style('width', W + 'px').style('height', H + 'px');
+  d3.select('#map-outer').style('width', W + 'px').style('height', H + 'px');
+
+  buildVoronoi(zones);
+
+  zoomBehavior = d3.zoom()
+    .scaleExtent([0.5, 9])
+    .on('zoom', ({ transform }) => {
+      d3.select('#map-wrap')
+        .style('transform', `translate(${transform.x}px,${transform.y}px) scale(${transform.k})`);
+    });
+  d3.select('#map-outer').call(zoomBehavior);
+
+  renderTerrain(zones);
+  // Wait for fonts before rendering SVG text
+  document.fonts.ready.then(() => renderLabels(zones));
+  preloadImages(zones);
 }
 
-// Bootstrap
 async function init() {
   document.getElementById('loading-overlay').classList.add('visible');
   try {
     const res = await fetch('/api/brain/zones');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const zones = await res.json();
-    renderBrain(zones);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    renderBrain(await res.json());
   } catch (e) {
     document.getElementById('loading-overlay').querySelector('span').textContent =
       'Failed to load — is the server running?';
@@ -608,6 +707,11 @@ async function init() {
   }
   document.getElementById('loading-overlay').classList.remove('visible');
 }
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('detail-drawer').classList.contains('open'))
+    closeDrawer();
+});
 
 init();
 </script>
