@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Observatory — Your personal taste atlas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #111a0f;
+    --bg2:       #182014;
+    --bg3:       #1e2a18;
+    --border:    rgba(232,218,184,0.12);
+    --parchment: #e8dfc0;
+    --muted:     rgba(232,218,184,0.5);
+    --dim:       rgba(232,218,184,0.28);
+    --accent:    #8db87a;
+    --film:      #4a7ab5;
+    --book:      #b5844a;
+    --music:     #8a4ab5;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--parchment);
+    font-family: 'Crimson Text', serif;
+    font-size: 1.1rem;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* ── Header ─────────────────────────────────────────────────────────────── */
+  header {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 4.5rem 2rem 3rem;
+    text-align: center;
+  }
+  .logo {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(2rem, 6vw, 3.2rem);
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    color: var(--parchment);
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+  }
+  .tagline {
+    font-style: italic;
+    color: var(--muted);
+    font-size: 1.15rem;
+    margin-bottom: 2rem;
+  }
+  .pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    justify-content: center;
+    margin-bottom: 2.5rem;
+  }
+  .pill {
+    font-family: 'Cinzel', serif;
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .cta-main {
+    display: inline-block;
+    font-family: 'Cinzel', serif;
+    font-size: 0.8rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 12px 28px;
+    border: 1px solid rgba(232,218,184,0.4);
+    border-radius: 2px;
+    color: var(--parchment);
+    text-decoration: none;
+    background: rgba(232,218,184,0.06);
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .cta-main:hover { background: rgba(232,218,184,0.12); border-color: rgba(232,218,184,0.7); }
+
+  /* ── Section chrome ──────────────────────────────────────────────────────── */
+  .section {
+    max-width: 820px;
+    margin: 0 auto 3rem;
+    padding: 0 2rem;
+  }
+  .section-label {
+    font-family: 'Cinzel', serif;
+    font-size: 0.62rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 0.9rem;
+  }
+  .section-title {
+    font-family: 'Cinzel', serif;
+    font-size: 1.35rem;
+    font-weight: 600;
+    color: var(--parchment);
+    margin-bottom: 0.4rem;
+  }
+  .section-desc {
+    color: var(--muted);
+    font-style: italic;
+    margin-bottom: 1.5rem;
+    font-size: 1rem;
+  }
+
+  /* ── Search demo ─────────────────────────────────────────────────────────── */
+  .search-box {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1.5rem;
+  }
+  .search-row {
+    display: flex;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+    align-items: center;
+  }
+  .search-input {
+    flex: 1;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 9px 14px;
+    color: var(--parchment);
+    font-family: 'Crimson Text', serif;
+    font-size: 1.05rem;
+    outline: none;
+  }
+  .search-input:focus { border-color: rgba(232,218,184,0.35); }
+  .search-btn {
+    font-family: 'Cinzel', serif;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 9px 18px;
+    background: rgba(232,218,184,0.08);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--parchment);
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .search-btn:hover { background: rgba(232,218,184,0.15); }
+  .suggestion-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.2rem;
+  }
+  .suggestion {
+    font-size: 0.82rem;
+    font-style: italic;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 1px dotted var(--dim);
+    padding-bottom: 1px;
+    transition: color 0.15s;
+  }
+  .suggestion:hover, .suggestion.active { color: var(--parchment); }
+
+  .results-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 0.8rem;
+  }
+  .result-card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.25s, transform 0.25s;
+  }
+  .result-card.visible { opacity: 1; transform: none; }
+  .result-card:hover { border-color: rgba(232,218,184,0.25); }
+  .result-type {
+    font-family: 'Cinzel', serif;
+    font-size: 0.58rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 2px;
+    align-self: flex-start;
+  }
+  .result-type.film  { background: rgba(74,122,181,0.2);  color: #7aaee8; border: 1px solid rgba(74,122,181,0.3); }
+  .result-type.book  { background: rgba(181,132,74,0.2);  color: #e8b87a; border: 1px solid rgba(181,132,74,0.3); }
+  .result-type.tv_show { background: rgba(74,122,181,0.15); color: #7aaee8; border: 1px solid rgba(74,122,181,0.25); }
+  .result-title { font-weight: 600; font-size: 1rem; color: var(--parchment); }
+  .result-meta  { font-size: 0.88rem; color: var(--muted); font-style: italic; }
+  .result-desc  { font-size: 0.88rem; color: var(--dim); line-height: 1.4; }
+  .result-actions { display: flex; gap: 0.5rem; margin-top: 0.3rem; }
+  .result-action {
+    font-family: 'Cinzel', serif;
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    color: var(--dim);
+    cursor: default;
+    position: relative;
+  }
+  .result-action.add:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 5px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 3px 8px;
+    border-radius: 2px;
+    white-space: nowrap;
+    font-size: 0.65rem;
+    color: var(--muted);
+    pointer-events: none;
+  }
+
+  /* ── Ask Claude demo ─────────────────────────────────────────────────────── */
+  .picks-box {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1.5rem;
+  }
+  .question-card {
+    background: rgba(232,218,184,0.04);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.9rem 1.2rem;
+    margin-bottom: 1.2rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+  }
+  .q-icon {
+    font-family: 'Cinzel', serif;
+    font-size: 0.7rem;
+    color: var(--dim);
+    letter-spacing: 0.1em;
+    padding-top: 3px;
+    flex-shrink: 0;
+  }
+  .q-text { font-size: 1.05rem; color: var(--parchment); }
+  .answer-card {
+    display: flex;
+    gap: 0.8rem;
+    align-items: flex-start;
+  }
+  .a-icon {
+    font-family: 'Cinzel', serif;
+    font-size: 0.7rem;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    padding-top: 3px;
+    flex-shrink: 0;
+  }
+  .a-text {
+    font-size: 1.05rem;
+    color: var(--parchment);
+    line-height: 1.65;
+    min-height: 1.5em;
+  }
+  .a-text b { color: #c8e0b8; font-weight: 600; }
+  .cursor {
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    background: var(--accent);
+    vertical-align: text-bottom;
+    animation: blink 0.9s step-end infinite;
+    margin-left: 2px;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .picks-note {
+    margin-top: 1rem;
+    font-size: 0.88rem;
+    color: var(--dim);
+    font-style: italic;
+  }
+
+  /* ── Brain map CTA ───────────────────────────────────────────────────────── */
+  .map-cta {
+    max-width: 820px;
+    margin: 0 auto 4rem;
+    padding: 0 2rem;
+  }
+  .map-cta-box {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2rem 2rem;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  @media (min-width: 600px) {
+    .map-cta-box { flex-direction: row; align-items: center; justify-content: space-between; }
+  }
+  .map-cta-text h2 {
+    font-family: 'Cinzel', serif;
+    font-size: 1.2rem;
+    margin-bottom: 0.3rem;
+  }
+  .map-cta-text p {
+    color: var(--muted);
+    font-style: italic;
+    font-size: 1rem;
+    max-width: 440px;
+  }
+  .cta-map {
+    display: inline-block;
+    font-family: 'Cinzel', serif;
+    font-size: 0.75rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 11px 24px;
+    border: 1px solid rgba(141,184,122,0.45);
+    border-radius: 2px;
+    color: var(--accent);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.2s, border-color 0.2s;
+    flex-shrink: 0;
+  }
+  .cta-map:hover { background: rgba(141,184,122,0.08); border-color: var(--accent); }
+
+  /* ── What it does ────────────────────────────────────────────────────────── */
+  .features {
+    max-width: 820px;
+    margin: 0 auto 3.5rem;
+    padding: 0 2rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+  }
+  .feat {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1.1rem 1.2rem;
+  }
+  .feat-title {
+    font-family: 'Cinzel', serif;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--parchment);
+    margin-bottom: 0.4rem;
+  }
+  .feat-desc { font-size: 0.92rem; color: var(--muted); line-height: 1.5; }
+
+  /* ── Divider ─────────────────────────────────────────────────────────────── */
+  .divider {
+    max-width: 820px;
+    margin: 0 auto 3rem;
+    padding: 0 2rem;
+    border: none;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Footer ──────────────────────────────────────────────────────────────── */
+  footer {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 1.5rem 2rem 3rem;
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+    font-family: 'Cinzel', serif;
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  footer a { color: var(--dim); text-decoration: none; border-bottom: 1px solid transparent; transition: color 0.15s, border-color 0.15s; }
+  footer a:hover { color: var(--muted); border-bottom-color: var(--muted); }
+
+  /* ── Demo banner ─────────────────────────────────────────────────────────── */
+  #demo-notice {
+    background: rgba(20,30,15,0.95);
+    border-bottom: 1px solid var(--border);
+    padding: 7px 18px;
+    text-align: center;
+    font-family: 'Cinzel', serif;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    color: var(--dim);
+    text-transform: uppercase;
+  }
+  #demo-notice a { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div id="demo-notice">
+  Demo &mdash; fixture data &middot;
+  <a href="https://github.com/waldo-van-der-code/observatory" target="_blank">clone the repo</a>
+  to use your own data
+</div>
+
+<header>
+  <div class="logo">Observatory</div>
+  <p class="tagline">A self-hosted atlas of your taste — films, books, music — built from your own data.</p>
+  <div class="pill-row">
+    <span class="pill">No account</span>
+    <span class="pill">No cloud</span>
+    <span class="pill">Your data</span>
+    <span class="pill">Your machine</span>
+    <span class="pill">Open source</span>
+  </div>
+  <a href="brain.html" class="cta-main">→ Open the Taste Map</a>
+</header>
+
+<div class="features">
+  <div class="feat">
+    <div class="feat-title">Search</div>
+    <div class="feat-desc">Search films, TV, and books. Add to watchlist. Rate inline.</div>
+  </div>
+  <div class="feat">
+    <div class="feat-title">AI Profile</div>
+    <div class="feat-desc">Claude reads your history and generates a genre fingerprint + recommendations.</div>
+  </div>
+  <div class="feat">
+    <div class="feat-title">Brain Map</div>
+    <div class="feat-desc">Your taste as a cartographic world — 13 genre zones, sized by engagement.</div>
+  </div>
+  <div class="feat">
+    <div class="feat-title">Your Data</div>
+    <div class="feat-desc">Ingests GDPR exports from Spotify, Goodreads, IMDB, Netflix, JustWatch.</div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ── Search demo ──────────────────────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-label">Feature demo</div>
+  <div class="section-title">Search anything</div>
+  <div class="section-desc">Film, TV, or book — search, see details, add to your list. Try a query below.</div>
+
+  <div class="search-box">
+    <div class="search-row">
+      <input type="text" class="search-input" id="search-input" value="matrix" spellcheck="false" autocomplete="off">
+      <button class="search-btn" id="search-btn">Search</button>
+    </div>
+    <div class="suggestion-row">
+      <span class="suggestion active" data-q="matrix">The Matrix</span>
+      <span class="suggestion" data-q="dune">Dune</span>
+      <span class="suggestion" data-q="solaris">Solaris</span>
+    </div>
+    <div class="results-grid" id="results-grid"></div>
+  </div>
+</div>
+
+<!-- ── Ask Claude demo ──────────────────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-label">Feature demo</div>
+  <div class="section-title">Ask Claude</div>
+  <div class="section-desc">The AI reads your taste profile and makes picks tuned to your patterns.</div>
+
+  <div class="picks-box">
+    <div class="question-card">
+      <span class="q-icon">YOU</span>
+      <span class="q-text">What should I watch next?</span>
+    </div>
+    <div class="answer-card">
+      <span class="a-icon">AI</span>
+      <div class="a-text" id="answer-text"><span class="cursor"></span></div>
+    </div>
+    <p class="picks-note">Answer generated from your taste profile — genre fingerprint, rating patterns, top directors.</p>
+  </div>
+</div>
+
+<!-- ── Brain map CTA ─────────────────────────────────────────────────────────── -->
+<div class="map-cta">
+  <div class="map-cta-box">
+    <div class="map-cta-text">
+      <h2>The Taste Map</h2>
+      <p>A Voronoi-partitioned world where each region is a genre zone, labelled with your most-watched films, top artists, and highest-rated books. Sized by engagement.</p>
+    </div>
+    <a href="brain.html" class="cta-map">→ Open the map</a>
+  </div>
+</div>
+
+<hr class="divider">
+
+<footer>
+  <a href="https://github.com/waldo-van-der-code/observatory" target="_blank">GitHub</a>
+  <a href="brain.html">Taste Map demo</a>
+  <span>Self-hosted · MIT license</span>
+</footer>
+
+<script>
+// ── Search demo ───────────────────────────────────────────────────────────────
+let allResults = {};
+
+async function loadResults() {
+  try {
+    const r = await fetch('demo_results.json');
+    allResults = await r.json();
+  } catch(e) {
+    // Fallback inline results if fetch fails (e.g. file:// protocol)
+    allResults = {
+      matrix: [{title:'The Matrix',media_type:'film',year:1999,author_or_director:'Wachowski Sisters',description:'A hacker discovers reality is a simulation.'}],
+      dune:   [{title:'Dune',media_type:'film',year:2021,author_or_director:'Denis Villeneuve',description:'Epic sci-fi on a desert planet.'}],
+      solaris:[{title:'Solaris',media_type:'film',year:1972,author_or_director:'Andrei Tarkovsky',description:'A psychologist sent to a space station above a living ocean.'}]
+    };
+  }
+  showResults('matrix');
+}
+
+function showResults(query) {
+  const grid = document.getElementById('results-grid');
+  const results = allResults[query.toLowerCase().trim()] || [];
+
+  // Set active suggestion
+  document.querySelectorAll('.suggestion').forEach(s => {
+    s.classList.toggle('active', s.dataset.q === query);
+  });
+
+  // Fade out, swap, fade in
+  grid.querySelectorAll('.result-card').forEach(c => c.classList.remove('visible'));
+
+  setTimeout(() => {
+    grid.innerHTML = results.map((r, i) => `
+      <div class="result-card" style="transition-delay:${i * 60}ms">
+        <span class="result-type ${r.media_type}">${r.media_type.replace('_', ' ')}</span>
+        <div class="result-title">${r.title}</div>
+        <div class="result-meta">${r.year} &middot; ${r.author_or_director}</div>
+        <div class="result-desc">${r.description}</div>
+        <div class="result-actions">
+          <span class="result-action add" data-tip="Clone the repo to use this">+ Watchlist</span>
+          <span class="result-action">Rate</span>
+        </div>
+      </div>
+    `).join('');
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        grid.querySelectorAll('.result-card').forEach(c => c.classList.add('visible'));
+      });
+    });
+  }, 150);
+}
+
+document.getElementById('search-btn').addEventListener('click', () => {
+  const q = document.getElementById('search-input').value.trim().toLowerCase();
+  if (q) showResults(q);
+});
+
+document.getElementById('search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const q = e.target.value.trim().toLowerCase();
+    if (q) showResults(q);
+  }
+});
+
+document.querySelectorAll('.suggestion').forEach(s => {
+  s.addEventListener('click', () => {
+    document.getElementById('search-input').value = s.dataset.q;
+    showResults(s.dataset.q);
+  });
+});
+
+// ── Ask Claude typewriter ─────────────────────────────────────────────────────
+const ANSWER_HTML = 'Based on your sci-fi picks and arthouse leanings, <b>Stalker</b> (Tarkovsky, 1979) is the gap — methodical, enormous, philosophical. For something with more momentum: <b>Annihilation</b> (2018) hits the same Villeneuve register you\'ve rated consistently highest. If you want to read first, <b>Roadside Picnic</b> is Stalker\'s source material and reads in an afternoon.';
+
+// Strip HTML for typing, then reveal HTML on completion
+const ANSWER_PLAIN = ANSWER_HTML.replace(/<[^>]+>/g, '');
+
+function typewriter(el, text, htmlFinal, delayMs = 900) {
+  let i = 0;
+  const cursor = '<span class="cursor"></span>';
+  el.innerHTML = cursor;
+
+  setTimeout(() => {
+    const iv = setInterval(() => {
+      if (i >= text.length) {
+        clearInterval(iv);
+        // Swap to rich HTML once typing completes
+        el.innerHTML = htmlFinal;
+        return;
+      }
+      el.innerHTML = text.slice(0, ++i) + cursor;
+    }, 22);
+  }, delayMs);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadResults();
+
+// Start typewriter when answer card scrolls into view
+const answerEl = document.getElementById('answer-text');
+let typed = false;
+const observer = new IntersectionObserver(entries => {
+  if (entries[0].isIntersecting && !typed) {
+    typed = true;
+    typewriter(answerEl, ANSWER_PLAIN, ANSWER_HTML);
+  }
+}, { threshold: 0.4 });
+observer.observe(answerEl);
+</script>
+
+</body>
+</html>

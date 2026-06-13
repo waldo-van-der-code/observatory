@@ -1,0 +1,65 @@
+{
+  "_note": "Pre-baked search results for the GitHub Pages demo. Keyed by lowercase query.",
+  "matrix": [
+    {
+      "title": "The Matrix",
+      "media_type": "film",
+      "year": 1999,
+      "author_or_director": "Lana & Lilly Wachowski",
+      "description": "A computer hacker discovers that reality is a simulation and joins a rebellion against the machines that built it."
+    },
+    {
+      "title": "The Matrix Reloaded",
+      "media_type": "film",
+      "year": 2003,
+      "author_or_director": "Lana & Lilly Wachowski",
+      "description": "Neo and the rebel leaders race to save Zion as the machine army approaches."
+    },
+    {
+      "title": "The Matrix and Philosophy",
+      "media_type": "book",
+      "year": 2002,
+      "author_or_director": "William Irwin",
+      "description": "Essays from 17 philosophers exploring free will, reality, and consciousness through the lens of the film."
+    }
+  ],
+  "dune": [
+    {
+      "title": "Dune",
+      "media_type": "film",
+      "year": 2021,
+      "author_or_director": "Denis Villeneuve",
+      "description": "A noble family becomes embroiled in a war for the most valuable substance in the universe on a desert planet."
+    },
+    {
+      "title": "Dune: Part Two",
+      "media_type": "film",
+      "year": 2024,
+      "author_or_director": "Denis Villeneuve",
+      "description": "Paul Atreides unites with the Fremen to wage war against those who destroyed his family."
+    },
+    {
+      "title": "Dune",
+      "media_type": "book",
+      "year": 1965,
+      "author_or_director": "Frank Herbert",
+      "description": "The defining science fiction epic — ecology, religion, politics, and power on a desert planet."
+    }
+  ],
+  "solaris": [
+    {
+      "title": "Solaris",
+      "media_type": "film",
+      "year": 1972,
+      "author_or_director": "Andrei Tarkovsky",
+      "description": "A psychologist is sent to a space station orbiting a mysterious ocean planet where the crew has been experiencing hallucinations."
+    },
+    {
+      "title": "Solaris",
+      "media_type": "book",
+      "year": 1961,
+      "author_or_director": "Stanisław Lem",
+      "description": "Scientists attempt to study a living alien ocean that responds to their thoughts — and the limits of human understanding."
+    }
+  ]
+}
