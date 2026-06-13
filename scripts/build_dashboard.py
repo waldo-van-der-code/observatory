@@ -317,6 +317,264 @@ def render(conn) -> str:
             GROUP BY yr ORDER BY yr
         """).fetchall()
 
+    # ── TikTok ────────────────────────────────────────────────────────────────
+    _MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    def _fmt_month(ym: str) -> str:
+        try:
+            yr, mo = ym.split('-')
+            return f"{_MONTHS[int(mo)-1]} '{yr[2:]}"
+        except Exception:
+            return ym
+
+    tiktok_tables_exist = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='tiktok_interactions'"
+    ).fetchone()
+    tiktok_stats = {"watched": 0, "liked": 0, "favorited": 0}
+    tiktok_monthly = []
+    tiktok_hours = []
+    tiktok_enrichment = {"success": 0, "pending": 0, "failed": 0}
+    tiktok_top_hashtags: list[tuple[str, int]] = []
+    tiktok_category_comparison: list[tuple[str, int, int]] = []
+    consumption_modes: list[tuple[str, int]] = []
+
+    if tiktok_tables_exist:
+        for row in conn.execute(
+            "SELECT interaction_type, COUNT(*) c FROM tiktok_interactions GROUP BY interaction_type"
+        ).fetchall():
+            if row["interaction_type"] in tiktok_stats:
+                tiktok_stats[row["interaction_type"]] = row["c"]
+
+        tiktok_monthly = conn.execute("""
+            SELECT strftime('%Y-%m', interaction_date) month, COUNT(*) cnt
+            FROM tiktok_interactions WHERE interaction_type='watched'
+              AND interaction_date IS NOT NULL AND interaction_date != ''
+            GROUP BY month ORDER BY month
+        """).fetchall()
+
+        tiktok_hours = conn.execute("""
+            SELECT CAST(strftime('%H', interaction_date) AS INTEGER) hr, COUNT(*) cnt
+            FROM tiktok_interactions WHERE interaction_type='watched'
+              AND interaction_date IS NOT NULL AND interaction_date != ''
+            GROUP BY hr ORDER BY hr
+        """).fetchall()
+
+        for row in conn.execute("""
+            SELECT enrichment_status, COUNT(*) c FROM tiktok_videos
+            WHERE enrichment_status IS NOT NULL
+            GROUP BY enrichment_status
+        """).fetchall():
+            if row["enrichment_status"] in tiktok_enrichment:
+                tiktok_enrichment[row["enrichment_status"]] = row["c"]
+
+        # Top hashtags: parse from enriched videos' hashtags JSON array
+        import json as _json
+        _tag_counts: dict[str, int] = {}
+        for row in conn.execute("""
+            SELECT hashtags FROM tiktok_videos
+            WHERE enrichment_status = 'success' AND hashtags IS NOT NULL AND hashtags != '[]'
+        """).fetchall():
+            try:
+                tags = _json.loads(row["hashtags"])
+                for t in tags:
+                    t_lower = t.lower().strip()
+                    if t_lower and t_lower not in ("fyp", "foryou", "foryoupage", "viral", "trending"):
+                        _tag_counts[t_lower] = _tag_counts.get(t_lower, 0) + 1
+            except Exception:
+                pass
+        tiktok_top_hashtags = sorted(_tag_counts.items(), key=lambda x: -x[1])[:20]
+
+        # Cross-platform category comparison (TikTok liked+fav vs YouTube foreground)
+        _tk_cat: dict[str, int] = {}
+        for row in conn.execute("""
+            SELECT tv.categories FROM tiktok_videos tv
+            JOIN tiktok_interactions ti ON ti.video_id = tv.video_id
+            WHERE tv.enrichment_status = 'success'
+              AND ti.interaction_type IN ('liked', 'favorited')
+              AND tv.categories IS NOT NULL AND tv.categories != '[]'
+        """).fetchall():
+            try:
+                for c in _json.loads(row["categories"]):
+                    _tk_cat[c] = _tk_cat.get(c, 0) + 1
+            except Exception:
+                pass
+
+        _yt_cat: dict[str, int] = {}
+        for row in conn.execute("""
+            SELECT e.yt_categories FROM youtube_video_enrichment e
+            WHERE e.ambient_class = 'foreground'
+              AND e.yt_categories IS NOT NULL AND e.yt_categories != '[]'
+        """).fetchall():
+            try:
+                for c in _json.loads(row["yt_categories"]):
+                    _yt_cat[c] = _yt_cat.get(c, 0) + 1
+            except Exception:
+                pass
+
+        # Union of all categories, sorted by combined signal
+        _all_cats = sorted(
+            set(_tk_cat) | set(_yt_cat),
+            key=lambda c: -(_tk_cat.get(c, 0) + _yt_cat.get(c, 0))
+        )[:12]
+        tiktok_category_comparison = [(c, _tk_cat.get(c, 0), _yt_cat.get(c, 0)) for c in _all_cats]
+
+        # Day-level consumption mode summary (Spotify + YouTube + TikTok)
+        _day_rows = conn.execute("""
+            SELECT date(watched_at) d, COUNT(*) yt_cnt FROM youtube_watch_events
+            WHERE watched_at IS NOT NULL GROUP BY d
+        """).fetchall()
+        _yt_by_day = {r["d"]: r["yt_cnt"] for r in _day_rows}
+
+        _sp_rows = conn.execute("""
+            SELECT date(ended_at) d, COUNT(*) sp_cnt FROM spotify_plays
+            WHERE ended_at IS NOT NULL GROUP BY d
+        """).fetchall() if conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='spotify_plays'"
+        ).fetchone() else []
+        _sp_by_day = {r["d"]: r["sp_cnt"] for r in _sp_rows}
+
+        _tk_rows = conn.execute("""
+            SELECT date(interaction_date) d, COUNT(*) tk_cnt
+            FROM tiktok_interactions WHERE interaction_type='watched'
+              AND interaction_date IS NOT NULL GROUP BY d
+        """).fetchall()
+        _tk_by_day = {r["d"]: r["tk_cnt"] for r in _tk_rows}
+
+        _all_days = set(_yt_by_day) | set(_sp_by_day) | set(_tk_by_day)
+        _mode_counts = {"TikTok-heavy": 0, "YouTube-heavy": 0, "Music-heavy": 0, "Mixed": 0, "Light": 0}
+        for d in _all_days:
+            yt = _yt_by_day.get(d, 0)
+            sp = _sp_by_day.get(d, 0)
+            tk = _tk_by_day.get(d, 0)
+            if tk > 200 and yt < 3:
+                _mode_counts["TikTok-heavy"] += 1
+            elif yt >= 5 and tk < 50:
+                _mode_counts["YouTube-heavy"] += 1
+            elif sp > 30 and yt < 3 and tk < 50:
+                _mode_counts["Music-heavy"] += 1
+            elif tk > 50 or yt >= 2 or sp > 10:
+                _mode_counts["Mixed"] += 1
+            else:
+                _mode_counts["Light"] += 1
+        consumption_modes = sorted(_mode_counts.items(), key=lambda x: -x[1])
+
+    if not tiktok_tables_exist:
+        tiktok_category_comparison = []
+        consumption_modes = []
+
+    # ── YouTube ───────────────────────────────────────────────────────────────
+    yt_tables_exist = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='youtube_videos'"
+    ).fetchone()
+    yt_total = 0
+    yt_class_split = {}
+    yt_top_channels = []
+    yt_monthly = []
+    yt_yearly = []
+    yt_chapters = []
+    yt_ring_rows = []
+    yt_spotify_context = {}
+
+    if yt_tables_exist:
+        yt_total = conn.execute(
+            "SELECT COUNT(*) n FROM youtube_watch_events"
+        ).fetchone()["n"]
+
+        for row in conn.execute("""
+            SELECT e.ambient_class, COUNT(*) cnt,
+                   SUM(v.duration_sec) / 3600.0 hours
+            FROM youtube_videos v
+            JOIN youtube_video_enrichment e USING(video_id)
+            GROUP BY e.ambient_class ORDER BY cnt DESC
+        """).fetchall():
+            yt_class_split[row["ambient_class"] or "unknown"] = {
+                "cnt": row["cnt"], "hours": round(row["hours"] or 0, 1)
+            }
+
+        yt_top_channels = conn.execute("""
+            SELECT v.channel,
+                   COUNT(DISTINCT v.video_id) videos,
+                   SUM(CASE WHEN v.duration_sec / 60.0 > 90
+                            THEN 90.0 ELSE v.duration_sec / 60.0 END) capped_min
+            FROM youtube_videos v
+            JOIN youtube_video_enrichment e USING(video_id)
+            WHERE e.ambient_class = 'foreground'
+            GROUP BY v.channel
+            ORDER BY capped_min DESC LIMIT 12
+        """).fetchall()
+
+        yt_monthly = conn.execute("""
+            SELECT strftime('%Y-%m', w.watched_at) month, COUNT(*) cnt
+            FROM youtube_watch_events w
+            JOIN youtube_video_enrichment e USING(video_id)
+            WHERE e.ambient_class = 'foreground'
+              AND w.watched_at IS NOT NULL
+            GROUP BY month ORDER BY month
+        """).fetchall()
+
+        yt_yearly = conn.execute("""
+            SELECT strftime('%Y', w.watched_at) yr, COUNT(*) cnt,
+                   SUM(CASE WHEN v.duration_sec / 60.0 > 90
+                            THEN 90.0 ELSE v.duration_sec / 60.0 END) capped_min
+            FROM youtube_watch_events w
+            JOIN youtube_videos v USING(video_id)
+            JOIN youtube_video_enrichment e USING(video_id)
+            WHERE e.ambient_class = 'foreground'
+              AND w.watched_at NOT LIKE '1-%'
+            GROUP BY yr ORDER BY yr
+        """).fetchall()
+
+        yt_chapters = conn.execute(
+            "SELECT name, summary, start_date, end_date FROM youtube_chapters ORDER BY start_date"
+        ).fetchall()
+
+        # Tree ring data: all events with date, duration, ambient_class, primary topic
+        yt_ring_rows = conn.execute("""
+            SELECT v.duration_sec, e.ambient_class, e.topics,
+                   substr(w.watched_at, 1, 4) yr
+            FROM youtube_videos v
+            JOIN youtube_video_enrichment e USING(video_id)
+            JOIN youtube_watch_events w USING(video_id)
+            WHERE w.watched_at NOT LIKE '1-%'
+            ORDER BY w.watched_at
+        """).fetchall()
+
+        # Cross-platform: Spotify minutes on YouTube-active vs non-YouTube days
+        _sp_exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='spotify_plays'"
+        ).fetchone()
+        yt_spotify_context = {}
+        if _sp_exists:
+            _yt_days = {r[0] for r in conn.execute(
+                "SELECT DISTINCT substr(watched_at,1,10) FROM youtube_watch_events "
+                "WHERE watched_at NOT LIKE '1-%' AND video_id IN "
+                "(SELECT video_id FROM youtube_video_enrichment WHERE ambient_class='foreground')"
+            ).fetchall()}
+            _sp_day_min = {r[0]: r[1] for r in conn.execute(
+                "SELECT substr(ended_at,1,10) d, SUM(ms_played)/60000.0 min "
+                "FROM spotify_plays WHERE ended_at IS NOT NULL GROUP BY d"
+            ).fetchall()}
+            _yt_sp = [_sp_day_min[d] for d in _yt_days if d in _sp_day_min]
+            _no_yt_sp = [m for d, m in _sp_day_min.items() if d not in _yt_days]
+            yt_spotify_context = {
+                "avg_on_yt_days":    round(sum(_yt_sp) / len(_yt_sp), 1)    if _yt_sp    else 0,
+                "avg_off_yt_days":   round(sum(_no_yt_sp) / len(_no_yt_sp), 1) if _no_yt_sp else 0,
+                "yt_days_with_sp":   sum(1 for d in _yt_days if d in _sp_day_min),
+                "total_yt_days":     len(_yt_days),
+            }
+
+    # Load curiosity trails from cache (computed in-session)
+    import os as _os
+    _trails_path = Path(__file__).parent.parent / "data" / "cache" / "youtube_curiosity_trails.json"
+    yt_trails = []
+    if _trails_path.exists():
+        try:
+            _all_trails = json.loads(_trails_path.read_text())
+            # Only show topics with meaningful depth (≥ 2 distinct days, ≥ 30min)
+            yt_trails = [t for t in _all_trails
+                         if t["distinct_days"] >= 2 and t["capped_min"] >= 30][:20]
+        except Exception:
+            pass
+
     # Directors queried live from DB (2+ rated films)
     top_directors_by_rating = conn.execute("""
         SELECT m.director, count(*) cnt, avg(ui.rating) avg_r
@@ -472,6 +730,374 @@ def render(conn) -> str:
                     sprint_html += '<td></td>'
             sprint_html += '</tr>'
         sprint_html += '</table></div>'
+
+    # ── YouTube HTML ──────────────────────────────────────────────────────────
+    yt_foreground  = yt_class_split.get("foreground",  {}).get("cnt", 0)
+    yt_ambient     = yt_class_split.get("ambient",     {}).get("cnt", 0)
+    yt_childcare   = yt_class_split.get("childcare_background", {}).get("cnt", 0)
+    yt_social      = yt_class_split.get("social_background",    {}).get("cnt", 0)
+    yt_fg_hrs      = yt_class_split.get("foreground",  {}).get("hours", 0)
+
+    yt_channels_html = ""
+    if yt_top_channels:
+        max_min = max(r["capped_min"] for r in yt_top_channels) or 1
+        for r in yt_top_channels:
+            w   = round(r["capped_min"] / max_min * 100, 1)
+            lbl = f"{round(r['capped_min'])}min · {r['videos']}v"
+            yt_channels_html += (
+                f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">'
+                f'<div style="width:130px;font-size:11px;text-align:right;color:var(--text-dim);'
+                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0">{r["channel"]}</div>'
+                f'<div style="flex:1;height:14px;background:rgba(26,22,18,0.1);border-radius:2px;overflow:hidden">'
+                f'<div style="width:{w}%;height:100%;background:#cc0000;border-radius:2px"></div></div>'
+                f'<div style="font-size:10px;font-weight:600;color:var(--text);'
+                f'width:72px;flex-shrink:0;text-align:right">{lbl}</div>'
+                f'</div>'
+            )
+    else:
+        yt_channels_html = "<p class='dim'>Run ingest_youtube.py first.</p>"
+
+    yt_monthly_html = ""
+    if yt_monthly:
+        max_m = max(r["cnt"] for r in yt_monthly) or 1
+        for r in yt_monthly:
+            w = round(r["cnt"] / max_m * 100, 1)
+            yt_monthly_html += (
+                f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
+                f'<div style="width:56px;font-size:10px;text-align:right;color:var(--text-dim);flex-shrink:0">'
+                f'{_fmt_month(r["month"])}</div>'
+                f'<div style="flex:1;height:14px;background:rgba(26,22,18,0.1);border-radius:2px;overflow:hidden">'
+                f'<div style="width:{w}%;height:100%;background:#cc0000;border-radius:2px"></div></div>'
+                f'<div style="font-size:10px;font-weight:600;color:var(--text);'
+                f'width:28px;flex-shrink:0;text-align:right">{r["cnt"]}</div>'
+                f'</div>'
+            )
+    else:
+        yt_monthly_html = "<p class='dim'>No foreground watch data.</p>"
+
+    yt_yearly_html = ""
+    if yt_yearly:
+        max_y = max(r["capped_min"] for r in yt_yearly) or 1
+        for r in yt_yearly:
+            w   = round(r["capped_min"] / max_y * 100, 1)
+            hrs = round(r["capped_min"] / 60, 1)
+            yt_yearly_html += (
+                f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">'
+                f'<div style="width:36px;font-size:11px;text-align:right;color:var(--text-dim);flex-shrink:0">{r["yr"]}</div>'
+                f'<div style="flex:1;height:16px;background:rgba(26,22,18,0.1);border-radius:2px;overflow:hidden">'
+                f'<div style="width:{w}%;height:100%;background:#cc0000;border-radius:2px"></div></div>'
+                f'<div style="font-size:10px;font-weight:600;color:var(--text);'
+                f'width:54px;flex-shrink:0;text-align:right">{hrs}h · {r["cnt"]}v</div>'
+                f'</div>'
+            )
+    else:
+        yt_yearly_html = "<p class='dim'>No data.</p>"
+
+    # Curiosity trails
+    yt_trails_html = ""
+    if yt_trails:
+        max_score = max(t["interest_score"] for t in yt_trails) or 1
+        for trail in yt_trails:
+            w    = round(trail["interest_score"] / max_score * 100, 1)
+            hrs  = round(trail["capped_min"] / 60, 1)
+            rr   = trail["return_rate"]
+            rr_color = "#cc0000" if rr >= 1.5 else ("var(--text)" if rr >= 1.0 else "var(--text-dim)")
+            yt_trails_html += (
+                f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">'
+                f'<div style="width:140px;font-size:11px;text-align:right;color:var(--text-dim);'
+                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0">{trail["topic"]}</div>'
+                f'<div style="flex:1;height:14px;background:rgba(26,22,18,0.1);border-radius:2px;overflow:hidden">'
+                f'<div style="width:{w}%;height:100%;background:#cc0000;border-radius:2px"></div></div>'
+                f'<div style="font-size:10px;font-weight:600;color:var(--text);width:38px;flex-shrink:0;text-align:right">{hrs}h</div>'
+                f'<div style="font-size:10px;color:{rr_color};width:30px;flex-shrink:0;text-align:right" title="return rate">{rr}↩</div>'
+                f'</div>'
+            )
+    else:
+        yt_trails_html = "<p class='dim'>Run enrichment to generate curiosity trails.</p>"
+
+    # ── Tree Ring Visualization ───────────────────────────────────────────────
+    TOPIC_RING_COLORS = {
+        'One Piece analysis': '#e8a000', 'anime': '#f39c12',
+        'sketch comedy': '#4a90d9',      'SNL': '#4a90d9',       'The Office': '#3a7dc9',
+        'entrepreneur TV': '#27ae60',    'startup pitching': '#27ae60',
+        'music': '#9b59b6',             'music video': '#8e44ad',
+        'electronic music': '#6c3483',  'Berlin club scene': '#5b2c6f',
+        'film': '#e74c3c',              'trailer': '#c0392b',
+        'documentary': '#d35400',       'history': '#ca6f1e',
+        'apartment DIY': '#7f8c8d',     'home maintenance': '#717d7e',
+        'magic': '#1abc9c',             'mentalism': '#17a589',
+        'board games': '#16a085',       'tabletop': '#148f77',
+        'AI tools': '#2c3e50',          'science': '#2980b9',
+        'nature': '#28b463',            'comedy': '#5dade2',
+        'indie folk': '#a9cce3',        'indie rock': '#7fb3d3',
+        'Belgian music': '#e8d5b7',     'self-help': '#f0b27a',
+        'internet culture': '#aab7b8',
+    }
+    AMBIENT_RING_COLORS = {
+        'ambient': '#adb5bd',
+        'childcare_background': '#dee2e6',
+        'social_background': '#c4b5d4',
+        'foreground': None,  # handled by topic
+    }
+
+    def ring_color(ambient_class, topics_json):
+        if ambient_class != 'foreground':
+            return AMBIENT_RING_COLORS.get(ambient_class, '#adb5bd')
+        try:
+            topics = json.loads(topics_json or '[]')
+            for t in topics:
+                if t in TOPIC_RING_COLORS:
+                    return TOPIC_RING_COLORS[t]
+        except Exception:
+            pass
+        return '#5d9cec'
+
+    yt_ring_html = ""
+    if yt_ring_rows:
+        from collections import defaultdict as _dd
+        by_yr = _dd(list)
+        for r in yt_ring_rows:
+            by_yr[r['yr']].append(r)
+
+        years = sorted(by_yr.keys())
+        max_capped = max(
+            sum(min(v['duration_sec'] / 60.0, 90) for v in vids)
+            for vids in by_yr.values()
+        ) or 1
+
+        legend_items = [
+            ('#e8a000','One Piece'), ('#f39c12','Anime'), ('#4a90d9','Comedy'),
+            ('#27ae60','Entrepreneur'), ('#9b59b6','Music'), ('#e74c3c','Film'),
+            ('#d35400','Documentary'), ('#7f8c8d','DIY'), ('#1abc9c','Magic'),
+            ('#16a085','Board Games'), ('#2c3e50','AI'), ('#dee2e6','Background'),
+            ('#5d9cec','Other'),
+        ]
+        legend_html = "".join(
+            f'<span style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;font-size:10px;color:var(--text-dim)">'
+            f'<span style="width:10px;height:10px;background:{c};border-radius:2px;flex-shrink:0"></span>{lbl}</span>'
+            for c, lbl in legend_items
+        )
+
+        rows_html = ""
+        for yr in years:
+            vids = by_yr[yr]
+            year_capped = sum(min(v['duration_sec'] / 60.0, 90) for v in vids)
+            strip_pct = round(year_capped / max_capped * 100, 1)
+            segs = ""
+            for v in vids:
+                capped = min(v['duration_sec'] / 60.0, 90)
+                seg_pct = round(capped / year_capped * 100, 2) if year_capped else 0
+                col = ring_color(v['ambient_class'], v['topics'])
+                _ac = v['ambient_class']
+                segs += (
+                    f'<div style="width:{seg_pct}%;height:100%;background:{col};'
+                    f'flex-shrink:0" title="{_ac}"></div>'
+                )
+            rows_html += (
+                f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
+                f'<div style="width:32px;font-size:10px;text-align:right;color:var(--text-dim);flex-shrink:0">{yr}</div>'
+                f'<div style="width:{strip_pct}%;max-width:calc(100% - 100px);height:18px;'
+                f'display:flex;flex-direction:row;overflow:hidden;border-radius:2px;flex-shrink:0">'
+                f'{segs}</div>'
+                f'<div style="font-size:10px;color:var(--text-dim)">{round(year_capped/60,1)}h · {len(vids)}v</div>'
+                f'</div>'
+            )
+
+        yt_ring_html = (
+            f'<div style="margin-bottom:10px;line-height:1.6">{legend_html}</div>'
+            f'{rows_html}'
+        )
+    else:
+        yt_ring_html = "<p class='dim'>Run ingest_youtube.py to generate tree ring.</p>"
+
+    # ── Spotify × YouTube context ─────────────────────────────────────────────
+    yt_spotify_html = ""
+    if yt_spotify_context:
+        avg_yt  = yt_spotify_context["avg_on_yt_days"]
+        avg_no  = yt_spotify_context["avg_off_yt_days"]
+        yt_days = yt_spotify_context["total_yt_days"]
+        both    = yt_spotify_context["yt_days_with_sp"]
+        delta   = round(avg_yt - avg_no, 1)
+        direction = "less" if delta < 0 else "more"
+        yt_spotify_html = (
+            f'<div style="margin-bottom:14px">'
+            f'<div style="font-size:28px;font-weight:800;color:var(--accent-music);font-family:\'Lora\',serif;line-height:1">'
+            f'{abs(delta)}min</div>'
+            f'<div style="font-size:12px;color:var(--text-dim);margin-top:4px">'
+            f'{direction} Spotify on YouTube days vs non-YouTube days<br>'
+            f'({avg_yt}min avg on YouTube days · {avg_no}min avg otherwise)</div>'
+            f'</div>'
+            f'<div style="font-size:12px;color:var(--text-dim)">'
+            f'{both} of {yt_days} YouTube days also had Spotify activity '
+            f'({round(both/yt_days*100) if yt_days else 0}%)</div>'
+        )
+
+    # Life chapters
+    yt_chapters_html = ""
+    if yt_chapters:
+        for ch in yt_chapters:
+            yr_start = ch["start_date"][:4]
+            yr_end   = ch["end_date"][:4]
+            yr_label = yr_start if yr_start == yr_end else f"{yr_start}–{yr_end}"
+            yt_chapters_html += (
+                f'<div style="border-left:3px solid #cc0000;padding:10px 14px;margin-bottom:12px">'
+                f'<div style="display:flex;align-items:baseline;gap:12px">'
+                f'<span style="font-size:11px;font-weight:700;color:#cc0000;'
+                f'text-transform:uppercase;letter-spacing:.06em;flex-shrink:0">{yr_label}</span>'
+                f'<span style="font-size:14px;font-weight:700;color:var(--text)">{ch["name"]}</span>'
+                f'</div>'
+                f'<div style="font-size:12px;color:var(--text-dim);margin-top:4px;line-height:1.5">{ch["summary"]}</div>'
+                f'</div>'
+            )
+    else:
+        yt_chapters_html = "<p class='dim'>Run enrich_youtube.py to generate life chapters.</p>"
+
+    # ── TikTok HTML ───────────────────────────────────────────────────────────
+    tiktok_monthly_html = ""
+    if tiktok_monthly:
+        max_m = max(r["cnt"] for r in tiktok_monthly) or 1
+        for r in tiktok_monthly:
+            w = round(r["cnt"] / max_m * 100, 1)
+            tiktok_monthly_html += (
+                f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
+                f'<div style="width:56px;font-size:10px;text-align:right;color:var(--text-dim);flex-shrink:0">{_fmt_month(r["month"])}</div>'
+                f'<div style="flex:1;height:14px;background:rgba(26,22,18,0.1);border-radius:2px;overflow:hidden">'
+                f'<div style="width:{w}%;height:100%;background:#fe2c55;border-radius:2px"></div></div>'
+                f'<div style="font-size:10px;font-weight:600;color:var(--text);width:44px;flex-shrink:0;text-align:right">{r["cnt"]:,}</div>'
+                f'</div>'
+            )
+    else:
+        tiktok_monthly_html = "<p class='dim'>No watch history data.</p>"
+
+    tiktok_hours_html = ""
+    if tiktok_hours:
+        hr_map = {r["hr"]: r["cnt"] for r in tiktok_hours}
+        max_hr = max(hr_map.values()) or 1
+        for hr in range(24):
+            cnt = hr_map.get(hr, 0)
+            if cnt == 0:
+                continue
+            w = round(cnt / max_hr * 100, 1)
+            hr_label = f"{hr:02d}:00"
+            tiktok_hours_html += (
+                f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">'
+                f'<div style="width:40px;font-size:10px;text-align:right;color:var(--text-dim);flex-shrink:0">{hr_label}</div>'
+                f'<div style="flex:1;height:12px;background:rgba(26,22,18,0.1);border-radius:2px;overflow:hidden">'
+                f'<div style="width:{w}%;height:100%;background:#25f4ee;border-radius:2px"></div></div>'
+                f'<div style="font-size:10px;font-weight:600;color:var(--text);width:44px;flex-shrink:0;text-align:right">{cnt:,}</div>'
+                f'</div>'
+            )
+    else:
+        tiktok_hours_html = "<p class='dim'>No data.</p>"
+
+    enrich_success = tiktok_enrichment["success"]
+    enrich_pending = tiktok_enrichment["pending"]
+    enrich_failed  = tiktok_enrichment["failed"]
+    enrich_eligible = enrich_success + enrich_pending + enrich_failed
+
+    if enrich_success > 0:
+        _pct_ok  = round(enrich_success / enrich_eligible * 100) if enrich_eligible else 0
+        _pct_bad = round(enrich_failed  / enrich_eligible * 100) if enrich_eligible else 0
+        _enrich_bar = (
+            f'<div class="dim" style="font-size:12px;margin-bottom:8px">'
+            f'{enrich_success:,} enriched · {enrich_pending:,} pending · {enrich_failed:,} failed</div>'
+            f'<div style="height:8px;background:rgba(26,22,18,0.1);border-radius:2px;overflow:hidden;display:flex;margin-bottom:16px">'
+            f'<div style="width:{_pct_ok}%;background:#25f4ee"></div>'
+            f'<div style="width:{_pct_bad}%;background:#fe2c55;opacity:.7"></div>'
+            f'</div>'
+        )
+        if tiktok_top_hashtags:
+            _max_tag = tiktok_top_hashtags[0][1] or 1
+            _tags_html = ""
+            for tag, cnt in tiktok_top_hashtags:
+                _w = round(cnt / _max_tag * 100, 1)
+                _tags_html += (
+                    f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">'
+                    f'<div style="width:110px;font-size:11px;text-align:right;color:var(--text-dim);flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">#{tag}</div>'
+                    f'<div style="flex:1;height:12px;background:rgba(26,22,18,0.1);border-radius:2px;overflow:hidden">'
+                    f'<div style="width:{_w}%;height:100%;background:#25f4ee;border-radius:2px"></div></div>'
+                    f'<div style="font-size:10px;font-weight:600;color:var(--text);width:32px;flex-shrink:0;text-align:right">{cnt}</div>'
+                    f'</div>'
+                )
+            _hashtags_section = f'<h3 style="font-size:13px;margin:0 0 8px">Top Hashtags</h3>{_tags_html}'
+        else:
+            _hashtags_section = '<p class="dim" style="font-size:12px">No hashtag data yet — enrichment in progress.</p>'
+        tiktok_enrich_html = (
+            f'<div class="panel"><h2>Content Enrichment</h2>'
+            f'{_enrich_bar}'
+            f'{_hashtags_section}'
+            f'</div>'
+        )
+    else:
+        tiktok_enrich_html = (
+            f'<div class="panel"><h2>Content Enrichment</h2>'
+            f'<p class="dim" style="font-size:13px;line-height:1.6">'
+            f'{enrich_pending:,} videos eligible (liked + favorited).<br>'
+            f'Run <code>python3 scripts/enrich_tiktok.py --limit 20</code> to test, '
+            f'then the full run. Hashtag and category analysis will appear here.</p></div>'
+        )
+
+    # ── Cross-platform category comparison HTML ───────────────────────────────
+    if tiktok_category_comparison:
+        _max_tk = max((t for _, t, _ in tiktok_category_comparison), default=1) or 1
+        _max_yt = max((y for _, _, y in tiktok_category_comparison), default=1) or 1
+        _scale = max(_max_tk, _max_yt)
+        _cat_rows_html = ""
+        for cat, tk_n, yt_n in tiktok_category_comparison:
+            _tw = round(tk_n / _scale * 100, 1)
+            _yw = round(yt_n / _scale * 100, 1)
+            _cat_rows_html += (
+                f'<div style="margin-bottom:6px">'
+                f'<div style="font-size:11px;color:var(--text-dim);margin-bottom:2px">{cat}</div>'
+                f'<div style="display:flex;gap:4px;align-items:center">'
+                f'<div style="width:90px;font-size:10px;text-align:right;color:#fe2c55;flex-shrink:0">TikTok {tk_n}</div>'
+                f'<div style="flex:1;height:10px;background:rgba(26,22,18,0.1);border-radius:2px;overflow:hidden">'
+                f'<div style="width:{_tw}%;height:100%;background:#fe2c55;opacity:.8;border-radius:2px"></div></div>'
+                f'</div>'
+                f'<div style="display:flex;gap:4px;align-items:center;margin-top:2px">'
+                f'<div style="width:90px;font-size:10px;text-align:right;color:#ff0000;flex-shrink:0">YouTube {yt_n}</div>'
+                f'<div style="flex:1;height:10px;background:rgba(26,22,18,0.1);border-radius:2px;overflow:hidden">'
+                f'<div style="width:{_yw}%;height:100%;background:#ff0000;opacity:.6;border-radius:2px"></div></div>'
+                f'</div>'
+                f'</div>'
+            )
+        tiktok_crossplatform_html = (
+            f'<div class="panel"><h2>TikTok × YouTube — Content Interests</h2>'
+            f'<div class="dim" style="font-size:11px;margin-bottom:12px">TikTok = liked + favorited · YouTube = intentional watches</div>'
+            f'{_cat_rows_html}</div>'
+        )
+    else:
+        tiktok_crossplatform_html = ""
+
+    # ── Consumption modes HTML ────────────────────────────────────────────────
+    if consumption_modes:
+        _total_days = sum(n for _, n in consumption_modes) or 1
+        _mode_html = ""
+        _mode_colors = {
+            "TikTok-heavy": "#fe2c55",
+            "YouTube-heavy": "#ff0000",
+            "Music-heavy": "#1db954",
+            "Mixed": "#25f4ee",
+            "Light": "rgba(100,100,100,0.4)",
+        }
+        for mode, cnt in consumption_modes:
+            _pct = round(cnt / _total_days * 100)
+            _col = _mode_colors.get(mode, "#888")
+            _mode_html += (
+                f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
+                f'<div style="width:110px;font-size:11px;text-align:right;color:var(--text-dim);flex-shrink:0">{mode}</div>'
+                f'<div style="flex:1;height:12px;background:rgba(26,22,18,0.1);border-radius:2px;overflow:hidden">'
+                f'<div style="width:{_pct}%;height:100%;background:{_col};border-radius:2px"></div></div>'
+                f'<div style="font-size:10px;font-weight:600;width:48px;flex-shrink:0">{cnt:,}d ({_pct}%)</div>'
+                f'</div>'
+            )
+        consumption_modes_html = (
+            f'<div class="panel"><h2>Daily Consumption Modes</h2>'
+            f'<div class="dim" style="font-size:11px;margin-bottom:10px">Classified by dominant platform signal per day · {_total_days:,} days with activity</div>'
+            f'{_mode_html}</div>'
+        )
+    else:
+        consumption_modes_html = ""
 
     # ── Podcasts HTML ─────────────────────────────────────────────────────────
     HUGE_FAN = {"99% Invisible", "The Moth", "Life in Scents", "Snap Judgment",
@@ -814,7 +1440,7 @@ def render(conn) -> str:
   .snav-link:hover {{ color:var(--text); }}
   .snav-link.active {{ color:var(--rust); border-bottom-color:var(--rust); }}
   /* Section anchors need scroll-margin to clear sticky bars */
-  #sec-overview, #sec-films, #sec-series, #sec-music-wrap, #sec-books, #sec-podcasts, #sec-comics, #sec-patterns, #sec-recs {{
+  #sec-overview, #sec-films, #sec-series, #sec-music-wrap, #sec-books, #sec-podcasts, #sec-comics, #sec-youtube, #sec-tiktok, #sec-patterns, #sec-recs {{
     scroll-margin-top: calc(var(--search-h) + 52px);
   }}
   .result-card {{ display:flex; gap:12px; background:var(--bg-card); border:1px solid var(--border); border-radius:3px; padding:14px; margin-bottom:10px; transition:border-color .15s, box-shadow .15s; }}
@@ -949,23 +1575,19 @@ def render(conn) -> str:
   .series-count {{ font-size:13px; color:var(--text-dim); }}
   /* Stat override — use cobalt for all */
   .stat-n {{ color:var(--cobalt) !important; }}
-  /* View tabs */
-  #view-tabs {{ position:sticky; top:var(--search-h); z-index:99; background:var(--bg); border-bottom:2px solid var(--border-dark); padding:0 24px; margin:0 -24px; }}
-  .view-tab-inner {{ max-width:1000px; margin:0 auto; display:flex; gap:0; }}
-  .view-tab {{ padding:10px 20px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--text-dim); background:none; border:none; border-bottom:3px solid transparent; cursor:pointer; transition:color .15s, border-color .15s; white-space:nowrap; }}
-  .view-tab.active {{ color:var(--cobalt); border-bottom-color:var(--cobalt); }}
-  .view-tab:hover {{ color:var(--text); }}
-  body.view-analytics #sec-recs {{ display:none; }}
-  body.view-analytics #search-bar {{ display:none; }}
-  body.view-analytics #section-nav {{ top:var(--tabs-h, 44px); }}
-  body.view-picks #analytics-view {{ display:none; }}
-  body.view-picks #section-nav {{ display:none; }}
-  body.view-picks #view-tabs {{ top:var(--search-h); }}
+  /* Taste Map nav link — distinct from anchor links */
+  .snav-link.external {{ color:var(--rust); }}
+  .snav-link.external:hover {{ color:var(--rust); opacity:.75; }}
+  .snav-link.external.active {{ border-bottom-color:var(--rust); }}
   /* Mobile */
   @media(max-width:700px) {{
     body {{ overflow-x:hidden; }}
     .sec-title {{ font-size:clamp(32px,10vw,56px); }}
     .sec-title.pattern {{ font-size:clamp(40px,12vw,72px); }}
+    .snav-link {{ min-height:44px; display:inline-flex; align-items:center; padding:8px 12px; }}
+    .search-row {{ flex-wrap:wrap; }}
+    #search-type {{ display:none; }}
+    #search-btn {{ flex:1 0 100%; }}
   }}
 </style>
 </head>
@@ -1003,14 +1625,6 @@ def render(conn) -> str:
   </div>
 </div>
 
-<!-- View tabs -->
-<div id="view-tabs">
-  <div class="view-tab-inner">
-    <button class="view-tab active" data-view="analytics" onclick="switchView('analytics')">Analytics</button>
-    <button class="view-tab" data-view="picks" onclick="switchView('picks')">Picks</button>
-  </div>
-</div>
-
 <!-- Section nav -->
 <div id="section-nav">
   <div class="snav-inner">
@@ -1021,7 +1635,11 @@ def render(conn) -> str:
     <a class="snav-link" href="#sec-books">Books</a>
     <a class="snav-link" href="#sec-podcasts">Podcasts</a>
     <a class="snav-link" href="#sec-comics">Comics</a>
+    <a class="snav-link" href="#sec-youtube">YouTube</a>
+    <a class="snav-link" href="#sec-tiktok">TikTok</a>
     <a class="snav-link" href="#sec-patterns">Patterns</a>
+    <a class="snav-link" href="#sec-recs">Picks</a>
+    <a class="snav-link external" href="/culture/map">Taste Map</a>
   </div>
 </div>
 
@@ -1073,6 +1691,8 @@ def render(conn) -> str:
     <div class="stat"><div class="stat-n">{stats["shows"] or 0}</div><div class="stat-l">Shows seen</div></div>
     <div class="stat"><div class="stat-n">{stats["films_rated"] or 0}</div><div class="stat-l">Rated (film+TV)</div></div>
     <div class="stat"><div class="stat-n" style="color:#c792ea">{comic_total}</div><div class="stat-l">Comics owned</div></div>
+    <div class="stat"><div class="stat-n" style="color:#cc0000">{yt_foreground:,}</div><div class="stat-l">YouTube videos</div></div>
+    <div class="stat"><div class="stat-n" style="color:#fe2c55">{tiktok_stats["watched"]:,}</div><div class="stat-l">TikTok watched</div></div>
   </div>
   <div class="dim" style="margin-top:12px;font-size:12px">Rating calibration: {cal.get("five_star_threshold","")}</div>
 </div>
@@ -1086,7 +1706,7 @@ def render(conn) -> str:
   <div class="sec-heading">
     <img src="/culture/img/section-films.jpg" class="sec-img" alt="">
     <div class="sec-eyebrow" style="color:var(--accent-film)">Films &amp; TV</div>
-    <div class="sec-title film">What I watch.</div>
+    <div class="sec-title film">What I sit through.</div>
   </div>
 
   <div class="grid-2" style="margin-top:4px">
@@ -1339,6 +1959,103 @@ def render(conn) -> str:
   </div>
 </div>
 
+<!-- ═══ YOUTUBE ═══════════════════════════════════════════════════════════ -->
+<div id="sec-youtube">
+  <div class="sec-heading">
+    <div class="sec-eyebrow" style="color:#cc0000">YouTube</div>
+    <div class="sec-title" style="color:#cc0000">What I watch.</div>
+  </div>
+
+  <div class="panel" style="margin-top:4px">
+    <div class="stat-bar">
+      <div class="stat"><div class="stat-n" style="color:#cc0000">{yt_total:,}</div><div class="stat-l">Watch events</div></div>
+      <div class="stat"><div class="stat-n" style="color:#cc0000">{yt_foreground:,}</div><div class="stat-l">Intentional (foreground)</div></div>
+      <div class="stat"><div class="stat-n">{round(yt_fg_hrs):,}h</div><div class="stat-l">Foreground hours</div></div>
+    </div>
+    <div class="dim" style="margin-top:10px;font-size:12px">
+      ambient: {yt_ambient} · childcare: {yt_childcare} · social/karaoke: {yt_social} — excluded from analysis
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="panel">
+      <h2>Top Channels — Foreground (capped 90min/video)</h2>
+      {yt_channels_html}
+    </div>
+    <div class="panel">
+      <h2>Monthly Foreground Activity</h2>
+      {yt_monthly_html}
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Curiosity Trails — Duration-Weighted Interest</h2>
+    <div class="dim" style="font-size:11px;margin-bottom:10px">Bar = time invested (capped 90min/video) × topic recurrence. ↩ = return rate (days/months).</div>
+    {yt_trails_html}
+  </div>
+
+  <div class="panel">
+    <h2>Tree Ring — Every Video, Width = Time Invested</h2>
+    <div class="dim" style="font-size:11px;margin-bottom:10px">Each bar is one year. Each segment is one video — width proportional to duration (capped 90min). Bars scaled relative to busiest year.</div>
+    {yt_ring_html}
+  </div>
+
+  <div class="grid-2">
+    <div class="panel">
+      <h2>Year-by-Year Foreground Viewing</h2>
+      {yt_yearly_html}
+    </div>
+    <div class="panel">
+      <h2>Life Chapters</h2>
+      {yt_chapters_html}
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="panel">
+      <h2>YouTube × Spotify — Do They Compete?</h2>
+      {yt_spotify_html}
+    </div>
+    <div class="panel">
+      <h2>Monthly Foreground Activity</h2>
+      {yt_monthly_html}
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TIKTOK ════════════════════════════════════════════════════════════ -->
+<div id="sec-tiktok">
+  <div class="sec-heading">
+    <div class="sec-eyebrow" style="color:#fe2c55">TikTok</div>
+    <div class="sec-title" style="color:#fe2c55">What I scroll.</div>
+  </div>
+
+  <div class="panel" style="margin-top:4px">
+    <div class="stat-bar">
+      <div class="stat"><div class="stat-n" style="color:#fe2c55">{tiktok_stats["watched"]:,}</div><div class="stat-l">Videos watched</div></div>
+      <div class="stat"><div class="stat-n" style="color:#fe2c55">{tiktok_stats["liked"]:,}</div><div class="stat-l">Liked (★★★★)</div></div>
+      <div class="stat"><div class="stat-n" style="color:#fe2c55">{tiktok_stats["favorited"]:,}</div><div class="stat-l">Favorited (★★★★★)</div></div>
+    </div>
+    <div class="dim" style="margin-top:10px;font-size:12px">watch=2★ · liked=4★ · favorited=5★ · searches and shares not tracked</div>
+  </div>
+
+  <div class="grid-2">
+    <div class="panel">
+      <h2>Monthly Watch Activity</h2>
+      {tiktok_monthly_html}
+    </div>
+    <div class="panel">
+      <h2>Peak Watch Hours</h2>
+      {tiktok_hours_html}
+      <div class="dim" style="margin-top:8px;font-size:12px">Hour based on TikTok export timestamps</div>
+    </div>
+  </div>
+
+  {tiktok_enrich_html}
+  {tiktok_crossplatform_html}
+  {consumption_modes_html}
+</div>
+
 <!-- ═══ PATTERNS ══════════════════════════════════════════════════════════ -->
 <div id="sec-patterns">
   <div class="sec-heading">
@@ -1391,17 +2108,6 @@ function switchTab(name) {{
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
   event.target.classList.add('active');
-}}
-
-function switchView(name) {{
-  document.body.classList.remove('view-analytics', 'view-picks');
-  document.body.classList.add('view-' + name);
-  localStorage.setItem('active_view', name);
-  document.querySelectorAll('.view-tab').forEach(t => {{
-    t.classList.toggle('active', t.dataset.view === name);
-  }});
-  // Scroll to top when switching views
-  window.scrollTo({{top: 0, behavior: 'smooth'}});
 }}
 
 function dismiss(id) {{
@@ -1512,16 +2218,6 @@ document.addEventListener('DOMContentLoaded', () => {{
   if (searchBar) {{
     document.documentElement.style.setProperty('--search-h', searchBar.offsetHeight + 'px');
   }}
-  const viewTabs = document.getElementById('view-tabs');
-  if (viewTabs) {{
-    document.documentElement.style.setProperty('--tabs-h', viewTabs.offsetHeight + 'px');
-  }}
-  // Restore active view from localStorage
-  const savedView = localStorage.getItem('active_view') || 'analytics';
-  document.body.classList.add('view-' + savedView);
-  document.querySelectorAll('.view-tab').forEach(t => {{
-    t.classList.toggle('active', t.dataset.view === savedView);
-  }});
   loadWatchlist();
   initSectionNav();
   updateRecsCount();
@@ -1560,7 +2256,7 @@ function toggleCollapsible(btn) {{
 }}
 
 function initSectionNav() {{
-  const sectionIds = ['sec-overview','sec-films','sec-series','sec-music-wrap','sec-books','sec-podcasts','sec-comics','sec-patterns','sec-recs'];
+  const sectionIds = ['sec-overview','sec-films','sec-series','sec-music-wrap','sec-books','sec-podcasts','sec-comics','sec-youtube','sec-tiktok','sec-patterns','sec-recs'];
   const links = {{}};
   sectionIds.forEach(id => {{
     const link = document.querySelector(`.snav-link[href="#${{id}}"]`);

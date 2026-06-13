@@ -1,17 +1,18 @@
 {
   "nodes": [
-    {"id": "SOUL_JAZZ",       "label": "Soul, Jazz & Blues",       "x": 22, "y": 35},
-    {"id": "FOLK_SINGER",     "label": "Folk & Singer-Songwriter",  "x": 15, "y": 65},
-    {"id": "ELECTRONIC_HIP",  "label": "Electronic & Hip-Hop",      "x": 58, "y": 32},
-    {"id": "INDIE_WORLD",     "label": "Indie, Alt & World",        "x": 35, "y": 50},
-    {"id": "DRAMA",           "label": "Drama & Realism",           "x": 35, "y": 72},
+    {"id": "SOUL_JAZZ",       "label": "Soul, Jazz & Blues",       "x": 14, "y": 32},
+    {"id": "FOLK_SINGER",     "label": "Folk & Singer-Songwriter",  "x":  8, "y": 66},
+    {"id": "ELECTRONIC_HIP",  "label": "Electronic & Hip-Hop",      "x": 58, "y": 28},
+    {"id": "INDIE_WORLD",     "label": "Indie, Alt & World",        "x": 20, "y": 58},
+    {"id": "ROCK",            "label": "Rock & Blues",              "x": 36, "y": 54},
+    {"id": "DRAMA",           "label": "Drama & Realism",           "x": 30, "y": 76},
     {"id": "CRIME_THRILLER",  "label": "Crime, Noir & Thriller",    "x": 55, "y": 44},
-    {"id": "ARTHOUSE",        "label": "Arthouse & Experimental",   "x": 42, "y": 83},
-    {"id": "SCI_FI",          "label": "Science Fiction",           "x": 76, "y": 75},
+    {"id": "ARTHOUSE",        "label": "Arthouse & Experimental",   "x": 42, "y": 85},
+    {"id": "SCI_FI",          "label": "Science Fiction",           "x": 76, "y": 76},
     {"id": "FANTASY_COMEDY",  "label": "Fantasy, Comedy & Wit",     "x": 68, "y": 62},
     {"id": "ACTION_ADV",      "label": "Action & Adventure",        "x": 80, "y": 28},
     {"id": "ANIMATION",       "label": "Animation & Visual Art",    "x": 70, "y": 50},
-    {"id": "HISTORY",         "label": "History & War",             "x": 50, "y": 72}
+    {"id": "HISTORY",         "label": "History & War",             "x": 50, "y": 74}
   ],
   "axes": {
     "x_left":  "Intimate",

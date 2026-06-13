@@ -7,6 +7,9 @@ youtube-watch-history/
 # Generated dashboard (contains personal stats)
 dashboard.html
 
+# Generated island images (derived from personal listening/viewing data)
+static/map-pieces/*.png
+
 # Python
 __pycache__/
 *.pyc

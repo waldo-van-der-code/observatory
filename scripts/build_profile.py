@@ -111,13 +111,35 @@ def save_cache(key: str, profile: dict, recs: list) -> None:
     )
 
 
-def generate_profile(client: anthropic.Anthropic, history: list[dict]) -> dict:
+def _build_youtube_context(conn) -> str:
+    """Pull top YouTube curiosity trails to enrich the taste profile."""
+    lines = ["\nYouTube watch history insights (foreground only):"]
+
+    # Top curiosity trails from cache
+    trails_path = Path(__file__).parent.parent / "data" / "cache" / "youtube_curiosity_trails.json"
+    if trails_path.exists():
+        try:
+            trails = json.loads(trails_path.read_text())
+            deep = [t for t in trails if t["distinct_days"] >= 3 and t["capped_min"] >= 60][:12]
+            if deep:
+                lines.append("Deep interests (by time invested × recurrence):")
+                for t in deep:
+                    lines.append(f"  - {t['topic']}: {round(t['capped_min']/60,1)}h across {t['distinct_days']} days")
+        except Exception:
+            pass
+
+    return "\n".join(lines)
+
+
+def generate_profile(client: anthropic.Anthropic, history: list[dict], conn=None) -> dict:
     rated = [h for h in history if h.get("rating")]
     history_text = json.dumps(rated, default=str)
+    yt_context = _build_youtube_context(conn) if conn else ""
 
-    prompt = f"""You are building a personal entertainment taste profile covering books, films, and TV.
+    prompt = f"""You are building a personal entertainment taste profile covering books, films, TV, and YouTube.
 
 {TASTE_SEED}
+{yt_context}
 
 Here is the user's complete rated media history (JSON):
 {history_text}
@@ -301,7 +323,7 @@ def main():
         store_profile(conn, cached)
     else:
         print("Calling Claude for taste profile…")
-        profile = generate_profile(client, history)
+        profile = generate_profile(client, history, conn=conn)
         print(f"Profile keys: {list(profile.keys())}")
         store_profile(conn, profile)
         cached = profile

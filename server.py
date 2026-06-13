@@ -660,7 +660,9 @@ async def _culture_director(name: str, api_key: str, timeout) -> JSONResponse:
 
 @app.get("/brain", response_class=FileResponse)
 def brain_page():
-    return FileResponse(BRAIN_HTML, media_type="text/html")
+    return FileResponse(BRAIN_HTML, media_type="text/html",
+                        headers={"Cache-Control": "no-store, no-cache, must-revalidate",
+                                 "Pragma": "no-cache"})
 
 
 @app.get("/api/brain/zones")

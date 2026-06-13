@@ -10,7 +10,7 @@ DB_PATH = Path(__file__).parent.parent / "data" / "processed" / "entertainment.d
 
 def get_conn() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -79,6 +79,100 @@ def init_db(conn: sqlite3.Connection) -> None:
             tmdb_id     TEXT PRIMARY KEY,
             imdb_id     TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS tiktok_videos (
+            video_id                   TEXT PRIMARY KEY,
+            url                        TEXT NOT NULL,
+            title                      TEXT,
+            description                TEXT,
+            hashtags                   TEXT,
+            categories                 TEXT,
+            enrichment_status          TEXT CHECK (
+                enrichment_status IS NULL OR
+                enrichment_status IN ('pending', 'success', 'failed', 'skipped')
+            ),
+            enrichment_error           TEXT,
+            enrichment_attempts        INTEGER DEFAULT 0,
+            last_enrichment_attempt_at TEXT,
+            raw_metadata_json          TEXT,
+            enriched_at                TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS tiktok_interactions (
+            source_key       TEXT PRIMARY KEY,
+            video_id         TEXT NOT NULL,
+            raw_url          TEXT NOT NULL,
+            interaction_type TEXT NOT NULL CHECK (interaction_type IN ('watched', 'liked', 'favorited')),
+            rating           INTEGER NOT NULL CHECK (rating IN (2, 4, 5)),
+            interaction_date TEXT NOT NULL,
+            source_list      TEXT,
+            source_index     INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS tiktok_unparsed_urls (
+            source_key       TEXT PRIMARY KEY,
+            raw_url          TEXT NOT NULL,
+            interaction_type TEXT,
+            interaction_date TEXT,
+            source_list      TEXT,
+            source_index     INTEGER,
+            reason           TEXT,
+            created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_tiktok_int_video_id ON tiktok_interactions(video_id);
+        CREATE INDEX IF NOT EXISTS idx_tiktok_int_type     ON tiktok_interactions(interaction_type);
+        CREATE INDEX IF NOT EXISTS idx_tiktok_int_date     ON tiktok_interactions(interaction_date);
+        CREATE INDEX IF NOT EXISTS idx_tiktok_vid_status   ON tiktok_videos(enrichment_status);
+
+        CREATE TABLE IF NOT EXISTS youtube_videos (
+            video_id     TEXT PRIMARY KEY,
+            title        TEXT,
+            channel      TEXT,
+            duration_sec INTEGER,
+            url          TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS youtube_watch_events (
+            event_id     TEXT PRIMARY KEY,
+            video_id     TEXT NOT NULL,
+            watched_at   TEXT NOT NULL,
+            source       TEXT,
+            source_index INTEGER,
+            FOREIGN KEY(video_id) REFERENCES youtube_videos(video_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS youtube_video_enrichment (
+            video_id         TEXT PRIMARY KEY,
+            ambient_class    TEXT,
+            ambient_reason   TEXT,
+            ambient_source   TEXT,
+            topics           TEXT,
+            enrichment_model TEXT,
+            prompt_version   TEXT,
+            enriched_at      TEXT,
+            FOREIGN KEY(video_id) REFERENCES youtube_videos(video_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS youtube_chapters (
+            chapter_id    TEXT PRIMARY KEY,
+            start_date    TEXT,
+            end_date      TEXT,
+            name          TEXT,
+            summary       TEXT,
+            evidence_json TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS youtube_chapter_evidence (
+            chapter_id TEXT,
+            video_id   TEXT,
+            weight     REAL,
+            reason     TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_yt_events_video ON youtube_watch_events(video_id);
+        CREATE INDEX IF NOT EXISTS idx_yt_events_date  ON youtube_watch_events(watched_at);
+        CREATE INDEX IF NOT EXISTS idx_yt_enrich_class ON youtube_video_enrichment(ambient_class);
     """)
     conn.commit()
 

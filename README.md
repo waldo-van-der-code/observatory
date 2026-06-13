@@ -29,9 +29,80 @@ Observatory ingests exports you download yourself from the original services:
 | **Netflix** | Viewing activity (CSV) | Account → Privacy → Download your data |
 | **JustWatch** | Liked / seen lists (CSV) | Profile → Export (seen list + liked list) |
 | **Audible** | Purchase/history JSON | Manual export or `audible_extra.json` |
+| **TikTok** | Full account data (JSON) | See below |
 | **YouTube** | Watch history (JSON) | Google Takeout → YouTube → Watch history *(planned — not yet in pipeline)* |
 
 All files go in `data/raw/`. None of your data is uploaded anywhere.
+
+---
+
+## TikTok watch history
+
+### Getting the export — not obvious
+
+TikTok makes you request a full data export and wait for it to be prepared. The file is not available
+immediately and only stays available for download for a few days.
+
+**Steps (as of mid-2026):**
+1. Open the TikTok app → Profile → Menu (☰, top right)
+2. Settings and privacy → Account → Download your data
+3. Select the data to include (everything is fine; we only use Watch History, Liked Videos, and Favorite Videos)
+4. Choose file format: **JSON**
+5. Tap **Request data**
+6. Wait a few days — TikTok will notify you when it's ready
+7. Download `user_data_tiktok.json` and place it in `data/raw/`
+
+**Notes:**
+- Preparation takes a few days (varies)
+- The file remains available for up to 4 days after generation — download it promptly
+- The most recent 24–48 hours of some categories may be missing from the export
+
+### What's in it (and what's not)
+
+The export contains a list of videos you watched, liked, and favorited — but **each entry is just a date
+and a URL**. There are no titles, no creator names, no categories, nothing but a link. This is a
+significant limitation TikTok buries in the spec.
+
+To do anything useful with the data, you need to enrich the videos by fetching their metadata from
+TikTok's servers.
+
+### Ingestion
+
+```bash
+cp ~/Downloads/user_data_tiktok.json data/raw/user_data_tiktok.json
+python3 scripts/ingest_tiktok.py
+```
+
+This is fast (~30s for 87k records) and fully idempotent — running it twice produces identical row counts.
+
+Rating signal used: **watch = ★★**, **liked = ★★★★**, **favorited = ★★★★★**.
+
+Searches, share history, and followed hashtags are intentionally ignored.
+
+### Metadata enrichment (OBS-17B)
+
+After ingesting, ~1,740 liked + favorited videos are marked `enrichment_status='pending'`. You can
+enrich them with `yt-dlp` to extract titles, descriptions, and hashtags:
+
+```bash
+# Test first (20 videos)
+python3 scripts/enrich_tiktok.py --limit 20
+
+# Full run (~45–60 min for ~1,740 videos; resumable)
+python3 scripts/enrich_tiktok.py
+
+# Rebuild dashboard to see hashtag analysis
+python3 scripts/build_dashboard.py
+```
+
+**Caveats:**
+- Enrichment is best-effort — TikTok can break yt-dlp extractors at any time
+- Deleted, private, or region-blocked videos will fail and are tracked as `enrichment_status='failed'`
+- Videos are retried up to 3 times; failures after that are not retried
+- Rate-limited to ~1 request/1.5s with backoff to avoid blocks
+
+Watch-only videos (85k+) are never enriched — only liked and favorited videos. This keeps
+enrichment manageable and focuses on the high-signal content.
 
 ---
 
@@ -97,6 +168,81 @@ Or use the convenience script (automatically skips sources whose files are absen
 
 The dashboard is a PWA. On iOS: open in Safari → Share → Add to Home Screen.
 On Android: open in Chrome → … → Add to Home Screen.
+
+---
+
+## Taste Map
+
+The **Brain** page (`brain.html`) renders an interactive cartographic map of your taste zones — a
+Voronoi-partitioned world where each region represents a genre cluster, labelled with your most
+played artists, watched films, and read books, sized by engagement.
+
+`brain.html` is committed with **no embedded data**. It fetches zone data from `/api/brain/zones`
+at runtime, so it renders your own taste once you've run the ingestion pipeline. Clone it, run
+the server, and it shows yours.
+
+### Populating the map
+
+After ingesting your data sources, build the Brain zone data:
+
+```bash
+python3 scripts/build_brain.py
+```
+
+This reads your DB and writes zone data that the server exposes at `/api/brain/zones`.
+
+### Generating the atlas background image
+
+The map renders over a hand-painted atlas background (`static/map-pieces/world-atlas.png`).
+This file is gitignored — you generate it once, then it stays on your machine.
+
+**Option A — Composite from 12 zone island images (recommended)**
+
+1. Generate prompts for each zone:
+
+   ```bash
+   python3 scripts/gen_map_prompts.py
+   # → static/map-pieces/prompts.md
+   ```
+
+2. Paste each prompt into **Gemini Imagen 3** (`imagen-3.0-generate-001`) at **1024×1024 PNG**.
+   The prompts already contain the style preamble — just paste and generate.
+
+3. Save each image as `static/map-pieces/{ZONE_ID}.png`
+   (e.g. `SOUL_JAZZ.png`, `FOLK_SINGER.png`, `DRAMA.png`, …)
+
+4. Optional — remove white backgrounds with `rembg`:
+
+   ```bash
+   pip install "rembg[cpu]" pillow
+   python3 scripts/process_map_pieces.py
+   ```
+
+5. Composite into a single atlas:
+
+   ```bash
+   pip install scipy
+   python3 scripts/composite_map.py
+   # → static/map-pieces/world-map.png
+   cp static/map-pieces/world-map.png static/map-pieces/world-atlas.png
+   ```
+
+**Option B — Single-image generation (quicker)**
+
+Generate one wide-format atlas in ChatGPT or DALL-E 3 with this prompt:
+
+> Antique fantasy world map. Hand-painted watercolor with fine ink linework, aged parchment
+> texture. Top-down view. No text labels, no cartouches, no compass roses. A 3:2 landscape
+> image showing a fictional continent divided into distinct climate / terrain regions:
+> warm delta river estuary (soul/jazz), enchanted Celtic forest (folk), neon-lit megacity
+> (electronic/hip-hop), layered canyon desert (rock), misty fjord coastline (indie/world),
+> Gothic nocturnal city (crime/thriller), arthouse lighthouse on stormy headland (arthouse),
+> space-elevator orbital ring (sci-fi), cloud-kingdom floating islands (fantasy/comedy),
+> war-scarred ancient ruins (history/war), volcanic archipelago (action/adventure), and
+> luminous deep-sea reef (animation). Ocean is a muted dark blue-grey (#0c1820).
+> Museum-quality 1890s geographical survey plate style.
+
+Save as `static/map-pieces/world-atlas.png` at **2160×1440** (3:2).
 
 ---
 
