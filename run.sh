@@ -50,11 +50,6 @@ ls "$DIR"/data/raw/spotify_streaming_audio_*.json &>/dev/null && {
   "$PYTHON" "$DIR/scripts/ingest_audible.py"
 }
 
-[ -f "$DIR/youtube-watch-history/watch-history.md" ] && {
-  echo "→ Ingesting YouTube watch history…"
-  "$PYTHON" "$DIR/scripts/ingest_youtube.py"
-}
-
 if [[ "$1" == "--refresh" ]]; then
   echo "→ Building AI taste profile (requires ANTHROPIC_API_KEY)…"
   "$PYTHON" "$DIR/scripts/build_profile.py" --refresh

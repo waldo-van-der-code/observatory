@@ -3,711 +3,725 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Your Taste Map</title>
+<title>✦ Your Taste Map</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <style>
-  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
-  body {
-    background: #2c3a28;
-    min-height: 100vh;
-    display: flex; justify-content: center; align-items: flex-start;
-    padding: 0.8rem;
-    font-family: 'Crimson Text', serif;
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0b151f;
+    --ocean: #0c1820;
+    --text: #f5e8c8;
+    --text-muted: #8a9a7a;
+    --panel-border: #c8763a;
+    --amber-dark: #8b4513;
+    --zone-explored: #c8763a;
+    --zone-neighbor: #7ec8e3;
   }
-  #map-view { display: flex; justify-content: center; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Crimson Text', serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  header {
+    text-align: center;
+    padding: 1.2rem 1rem 0.4rem;
+  }
+  header h1 {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(1rem, 2.5vw, 1.6rem);
+    letter-spacing: 0.08em;
+    color: var(--text);
+    opacity: 0.88;
+  }
+  header .subtitle {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-top: 0.2rem;
+    font-style: italic;
+  }
+
+  /* ── Map ── */
+  #map-view {
+    display: flex;
+    justify-content: center;
+    padding: 0.5rem 0.5rem 2rem;
+  }
   #map-outer {
-    overflow: hidden; cursor: grab; flex: 0 0 auto; position: relative;
-    box-shadow: 0 8px 48px rgba(0,0,0,0.65), 0 0 0 1px rgba(0,0,0,0.4);
-    border-radius: 2px;
+    overflow: hidden;
+    cursor: grab;
+    border-radius: 6px;
+    flex: 0 0 auto;
+    position: relative;
   }
   #map-outer:active { cursor: grabbing; }
-  #map-wrap { position: relative; transform-origin: 0 0; }
-
-  /* The atlas image IS the map */
-  #atlas-img {
-    display: block;
-    /* Starting state set by updateBasemapLOD() — see JS */
+  #map-wrap {
+    position: relative;
+    transform-origin: 0 0;
   }
-  #atlas-wash {
-    position: absolute; inset: 0;
-    background: rgba(232,218,184,1);
-    pointer-events: none;
-    /* opacity controlled by updateBasemapLOD() */
-  }
-
-  /* Label tier transitions for zoom-reveal */
-  .lbl-t2 { transition: opacity 0.25s; }
-  .lbl-t3 { transition: opacity 0.25s; }
-
-  /* SVG label layer sits on top of the image */
+  #terrain-canvas { display: block; }
   #map-svg {
-    position: absolute; inset: 0;
-    overflow: visible; pointer-events: none;
-  }
-  /* Static overlay never zooms */
-  #map-overlay {
-    position: absolute; inset: 0;
-    pointer-events: none; overflow: visible;
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+    pointer-events: none;
   }
 
-  /* All labels always visible — tiny at overview, readable on zoom (like a real map) */
-
+  /* SVG text — cartographic style: stroke drawn behind fill */
   .zone-name {
-    font-family: 'Cinzel', serif; font-weight: 700;
-    text-anchor: middle; dominant-baseline: middle;
-    paint-order: stroke fill; pointer-events: none;
+    font-family: 'Cinzel', serif;
+    font-weight: 600;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    fill: #f5e8c8;
+    paint-order: stroke fill;
+    letter-spacing: 0.07em;
+    pointer-events: none;
   }
   .zone-sub {
-    font-family: 'Crimson Text', serif; font-style: italic;
-    text-anchor: middle; dominant-baseline: middle;
-    paint-order: stroke fill; pointer-events: none;
+    font-family: 'Crimson Text', serif;
+    font-style: italic;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    fill: rgba(230,210,165,0.88);
+    stroke: rgba(5,12,20,0.82);
+    stroke-width: 2.5px;
+    paint-order: stroke fill;
+    letter-spacing: 0.02em;
+    pointer-events: none;
   }
   .zone-item {
-    dominant-baseline: middle; paint-order: stroke fill;
-    pointer-events: all; cursor: pointer;
+    font-family: 'Crimson Text', serif;
+    font-style: italic;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    paint-order: stroke fill;
+    pointer-events: all;
+    cursor: pointer;
+    transition: opacity 0.12s;
   }
   .zone-item:hover { opacity: 1 !important; }
-  .zone-hotspot { fill: transparent; cursor: pointer; pointer-events: all; }
+  .zone-hotspot {
+    fill: transparent;
+    cursor: pointer;
+    pointer-events: all;
+  }
+  @keyframes pulse-glow {
+    0%, 100% { stroke-opacity: 0.5; stroke-width: 2.5px; }
+    50%       { stroke-opacity: 1;   stroke-width: 4px; }
+  }
+  .zone-selected-ring {
+    fill: none;
+    stroke: #c8763a;
+    animation: pulse-glow 2.2s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  /* ── Detail drawer ── */
+  #detail-drawer {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    max-height: 60vh;
+    background: rgba(7, 14, 22, 0.97);
+    backdrop-filter: blur(14px);
+    border-top: 1px solid var(--panel-border);
+    transform: translateY(100%);
+    transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+    overflow-y: auto;
+    z-index: 50;
+  }
+  #detail-drawer.open { transform: translateY(0); }
+
+  #drawer-header {
+    position: sticky;
+    top: 0;
+    background: rgba(7, 14, 22, 0.98);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.8rem 1.5rem 0.6rem;
+    border-bottom: 1px solid rgba(200,118,58,0.22);
+    z-index: 1;
+  }
+  #back-btn {
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--panel-border);
+    font-family: 'Cinzel', serif;
+    font-size: 0.7rem;
+    padding: 5px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+    transition: background 0.15s, color 0.15s;
+  }
+  #back-btn:hover { background: var(--panel-border); color: var(--bg); }
+  #detail-title {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(0.9rem, 2.5vw, 1.5rem);
+    color: var(--panel-border);
+    letter-spacing: 0.06em;
+  }
+  #detail-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.2rem 2rem;
+    padding: 1.2rem 1.5rem 2rem;
+  }
+  @media (max-width: 600px) { #detail-content { grid-template-columns: 1fr; } }
+
+  .info-block { display: flex; flex-direction: column; gap: 0.35rem; }
+  .info-block-full { grid-column: 1 / -1; }
+  .info-heading {
+    font-family: 'Cinzel', serif;
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    margin-bottom: 0.2rem;
+  }
+  .engagement-bar-label {
+    display: flex; justify-content: space-between;
+    font-size: 0.75rem; color: var(--text-muted);
+  }
+  .engagement-bar {
+    height: 6px; background: #1a2a1a;
+    border-radius: 3px; overflow: hidden; margin-top: 3px;
+  }
+  .engagement-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--amber-dark), var(--zone-explored));
+    border-radius: 3px; transition: width 0.6s ease;
+  }
+  .item-tags { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+  .item-tag { font-family: 'Crimson Text', serif; font-style: italic; font-size: 0.9rem; }
+  .item-tag.music { color: #d4a96a; }
+  .item-tag.film  { color: #7ec8e3; }
+  .item-tag.book  { color: #9abf7a; }
+  .temporal-bars { display: flex; gap: 4px; align-items: flex-end; height: 48px; }
+  .temporal-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; height: 100%; }
+  .temporal-bar { width: 100%; background: var(--zone-explored); border-radius: 2px 2px 0 0; opacity: 0.7; min-height: 2px; }
+  .temporal-bar-label { font-size: 0.55rem; color: var(--text-muted); white-space: nowrap; }
+  .posters-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+  .poster-card { aspect-ratio: 2/3; border-radius: 4px; overflow: hidden; background: #1a2a1a; position: relative; }
+  .poster-card img { width: 100%; height: 100%; object-fit: cover; display: block; filter: sepia(0.3) hue-rotate(20deg) saturate(1.3) brightness(0.9) contrast(1.1); }
+  .poster-card .poster-title { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 3px; font-size: 0.55rem; font-family: 'Cinzel', serif; color: var(--text); background: rgba(10,20,30,0.72); line-height: 1.2; }
+  .neighbor-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .neighbor-chip { background: #0a1a1a; border: 1px solid var(--zone-neighbor); color: var(--zone-neighbor); font-size: 0.7rem; padding: 3px 10px; border-radius: 20px; cursor: pointer; transition: background 0.15s; }
+  .neighbor-chip:hover { background: #142a2a; }
 
   #loading-overlay {
     display: none; position: fixed; inset: 0;
-    background: rgba(40,55,35,0.6); z-index: 100;
+    background: rgba(10,20,28,0.6); z-index: 100;
     align-items: center; justify-content: center;
   }
   #loading-overlay.visible { display: flex; }
-  #loading-overlay span {
-    font-family: 'Cinzel', serif; color: #e8dfc0;
-    font-size: 1.1rem; letter-spacing: .1em;
-  }
+  #loading-overlay span { font-family: 'Cinzel', serif; color: var(--text); font-size: 1.1rem; letter-spacing: 0.1em; }
 </style>
 </head>
 <body>
 <div id="demo-banner" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:rgba(10,14,10,0.95);border-bottom:1px solid rgba(255,255,255,0.1);padding:6px 18px;display:flex;align-items:center;justify-content:space-between;font-size:0.72rem;color:rgba(255,255,255,0.55);font-family:sans-serif;"><span>Demo &mdash; synthetic fixture data &middot; <a href="https://github.com/waldo-van-der-code/observatory" style="color:rgba(255,255,255,0.75);text-decoration:underline;" target="_blank">clone the repo</a> to use your own data</span></div>
 <div style="height:32px"></div>
 
+
+<header>
+  <h1>✦ Your Taste Map · 2014–2026</h1>
+  <p class="subtitle">12 years of Spotify · Netflix · IMDb · Goodreads</p>
+</header>
+
 <div id="loading-overlay"><span>Loading…</span></div>
+
 <div id="map-view">
   <div id="map-outer">
     <div id="map-wrap">
-      <img id="atlas-img" src="static/map-pieces/world-atlas.png" alt="Taste Map Atlas" onerror="this.style.opacity='0'">
-      <!-- Parchment wash overlay — fades out as user zooms in -->
-      <div id="atlas-wash"></div>
+      <canvas id="terrain-canvas"></canvas>
       <svg id="map-svg"></svg>
     </div>
-    <svg id="map-overlay"></svg>
   </div>
 </div>
 
-<script>window.BRAIN_ZONES = [{"id":"SOUL_JAZZ","label":"Soul, Jazz & Blues","x":14,"y":32,"engagement":{"total":53.0,"music":45.0,"film":8.0,"book":0.0},"temporal":{},"exemplars":["Nina Simone","Bill Withers","Django Reinhardt","Ella Fitzgerald"],"top_items":[],"labels":[],"neighbors":["INDIE_WORLD","ROCK","FOLK_SINGER"],"explored":true,"art_cached":false},{"id":"FOLK_SINGER","label":"Folk & Singer-Songwriter","x":8,"y":66,"engagement":{"total":30.0,"music":30.0,"film":0.0,"book":0.0},"temporal":{},"exemplars":["Bob Dylan","Paul Simon","Leonard Cohen","Nick Drake"],"top_items":[],"labels":[],"neighbors":["INDIE_WORLD","DRAMA","ROCK"],"explored":true,"art_cached":false},{"id":"ELECTRONIC_HIP","label":"Electronic & Hip-Hop","x":58,"y":28,"engagement":{"total":80.0,"music":80.0,"film":0.0,"book":0.0},"temporal":{},"exemplars":["DJ Shadow","Bonobo","Parov Stelar","Wax Tailor"],"top_items":[],"labels":[],"neighbors":["CRIME_THRILLER","ACTION_ADV","ANIMATION"],"explored":true,"art_cached":false},{"id":"INDIE_WORLD","label":"Indie, Alt & World","x":20,"y":58,"engagement":{"total":55.0,"music":55.0,"film":0.0,"book":0.0},"temporal":{},"exemplars":["dEUS","Eels","Beirut","Stromae"],"top_items":[],"labels":[],"neighbors":["FOLK_SINGER","ROCK","DRAMA"],"explored":true,"art_cached":false},{"id":"ROCK","label":"Rock & Blues","x":36,"y":54,"engagement":{"total":65.0,"music":65.0,"film":0.0,"book":0.0},"temporal":{},"exemplars":["The Beatles","The Rolling Stones","Pink Floyd","Led Zeppelin"],"top_items":[],"labels":[],"neighbors":["INDIE_WORLD","CRIME_THRILLER","DRAMA"],"explored":true,"art_cached":false},{"id":"DRAMA","label":"Drama & Realism","x":30,"y":76,"engagement":{"total":37.0,"music":0.0,"film":25.0,"book":12.0},"temporal":{},"exemplars":["Bergman","Cassavetes","Wong Kar-Wai"],"top_items":[{"title":"Parasite","media_type":"film","source":"fixture","source_id":"f02","poster_url":null,"year":2019,"rating":5.0},{"title":"Chernobyl","media_type":"tv_show","source":"fixture","source_id":"f23","poster_url":null,"year":2019,"rating":5.0},{"title":"Breaking Bad","media_type":"tv_show","source":"fixture","source_id":"f03","poster_url":null,"year":2008,"rating":5.0},{"title":"The Road","media_type":"book","source":"fixture","source_id":"b06","poster_url":null,"year":2006,"rating":5.0},{"title":"Never Let Me Go","media_type":"book","source":"fixture","source_id":"b05","poster_url":null,"year":2005,"rating":5.0},{"title":"The Shawshank Redemption","media_type":"film","source":"fixture","source_id":"f01","poster_url":null,"year":1994,"rating":5.0},{"title":"Paths of Glory","media_type":"film","source":"fixture","source_id":"f22","poster_url":null,"year":1957,"rating":5.0}],"labels":[{"text":"Chernobyl","type":"film","weight":1.0},{"text":"Paths of Glory","type":"film","weight":1.0},{"text":"Breaking Bad","type":"film","weight":1.0},{"text":"Parasite","type":"film","weight":1.0},{"text":"The Shawshank Redemption","type":"film","weight":1.0},{"text":"Never Let Me Go","type":"book","weight":1.0},{"text":"The Road","type":"book","weight":1.0}],"neighbors":["ARTHOUSE","HISTORY","INDIE_WORLD"],"explored":true,"art_cached":false},{"id":"CRIME_THRILLER","label":"Crime, Noir & Thriller","x":55,"y":44,"engagement":{"total":35.0,"music":0.0,"film":30.0,"book":5.0},"temporal":{},"exemplars":["Hitchcock","Coen Brothers","Michael Mann"],"top_items":[{"title":"Pulp Fiction","media_type":"film","source":"fixture","source_id":"f05","poster_url":null,"year":1994,"rating":5.0},{"title":"The Godfather","media_type":"film","source":"fixture","source_id":"f04","poster_url":null,"year":1972,"rating":5.0},{"title":"True Detective","media_type":"tv_show","source":"fixture","source_id":"f06","poster_url":null,"year":2014,"rating":4.0},{"title":"The Girl with the Dragon Tattoo","media_type":"book","source":"fixture","source_id":"b07","poster_url":null,"year":2005,"rating":4.0}],"labels":[{"text":"Pulp Fiction","type":"film","weight":1.0},{"text":"The Godfather","type":"film","weight":1.0},{"text":"True Detective","type":"film","weight":0.8},{"text":"The Girl with the Dragon Tattoo","type":"book","weight":0.8}],"neighbors":["ANIMATION","ELECTRONIC_HIP","ROCK"],"explored":true,"art_cached":false},{"id":"ARTHOUSE","label":"Arthouse & Experimental","x":42,"y":85,"engagement":{"total":26.0,"music":8.0,"film":12.0,"book":6.0},"temporal":{},"exemplars":["Tarkovsky","Godard","David Lynch"],"top_items":[{"title":"The Master and Margarita","media_type":"book","source":"fixture","source_id":"b09","poster_url":null,"year":1967,"rating":5.0},{"title":"The Act of Killing","media_type":"film","source":"fixture","source_id":"f08","poster_url":null,"year":2012,"rating":4.0},{"title":"Jiro Dreams of Sushi","media_type":"film","source":"fixture","source_id":"f07","poster_url":null,"year":2011,"rating":4.0}],"labels":[{"text":"The Master and Margarita","type":"book","weight":1.0},{"text":"The Act of Killing","type":"film","weight":0.8},{"text":"Jiro Dreams of Sushi","type":"film","weight":0.8}],"neighbors":["HISTORY","DRAMA","ROCK"],"explored":true,"art_cached":false},{"id":"SCI_FI","label":"Science Fiction","x":76,"y":76,"engagement":{"total":60.0,"music":0.0,"film":40.0,"book":20.0},"temporal":{},"exemplars":["Dan Simmons","Arthur C. Clarke","Kubrick","Denis Villeneuve"],"top_items":[{"title":"Blade Runner 2049","media_type":"film","source":"fixture","source_id":"f09","poster_url":null,"year":2017,"rating":5.0},{"title":"Arrival","media_type":"film","source":"fixture","source_id":"f10","poster_url":null,"year":2016,"rating":5.0},{"title":"The Three-Body Problem","media_type":"book","source":"fixture","source_id":"b01","poster_url":null,"year":2008,"rating":5.0},{"title":"Dune","media_type":"film","source":"fixture","source_id":"f11","poster_url":null,"year":2021,"rating":4.0},{"title":"Neuromancer","media_type":"book","source":"fixture","source_id":"b02","poster_url":null,"year":1984,"rating":4.0}],"labels":[{"text":"Arrival","type":"film","weight":1.0},{"text":"Blade Runner 2049","type":"film","weight":1.0},{"text":"The Three-Body Problem","type":"book","weight":1.0},{"text":"Dune","type":"film","weight":0.8},{"text":"Neuromancer","type":"book","weight":0.8}],"neighbors":["FANTASY_COMEDY","HISTORY","ANIMATION"],"explored":true,"art_cached":false},{"id":"FANTASY_COMEDY","label":"Fantasy, Comedy & Wit","x":68,"y":62,"engagement":{"total":55.0,"music":0.0,"film":30.0,"book":25.0},"temporal":{},"exemplars":["Terry Pratchett","Douglas Adams","Miyazaki"],"top_items":[{"title":"Good Omens","media_type":"book","source":"fixture","source_id":"b03","poster_url":null,"year":1990,"rating":5.0},{"title":"The Princess Bride","media_type":"film","source":"fixture","source_id":"f13","poster_url":null,"year":1987,"rating":5.0},{"title":"Monty Python and the Holy Grail","media_type":"film","source":"fixture","source_id":"f12","poster_url":null,"year":1975,"rating":5.0},{"title":"Brooklyn Nine-Nine","media_type":"tv_show","source":"fixture","source_id":"f14","poster_url":null,"year":2013,"rating":4.0},{"title":"The Name of the Wind","media_type":"book","source":"fixture","source_id":"b04","poster_url":null,"year":2007,"rating":4.0}],"labels":[{"text":"The Princess Bride","type":"film","weight":1.0},{"text":"Monty Python and the Holy Grail","type":"film","weight":1.0},{"text":"Good Omens","type":"book","weight":1.0},{"text":"Brooklyn Nine-Nine","type":"film","weight":0.8},{"text":"The Name of the Wind","type":"book","weight":0.8}],"neighbors":["ANIMATION","SCI_FI","HISTORY"],"explored":true,"art_cached":false},{"id":"ACTION_ADV","label":"Action & Adventure","x":80,"y":28,"engagement":{"total":35.0,"music":0.0,"film":35.0,"book":0.0},"temporal":{},"exemplars":["Kurosawa","John Huston"],"top_items":[{"title":"Mad Max: Fury Road","media_type":"film","source":"fixture","source_id":"f15","poster_url":null,"year":2015,"rating":5.0},{"title":"The Dark Knight","media_type":"film","source":"fixture","source_id":"f17","poster_url":null,"year":2008,"rating":5.0},{"title":"Raiders of the Lost Ark","media_type":"film","source":"fixture","source_id":"f16","poster_url":null,"year":1981,"rating":5.0}],"labels":[{"text":"The Dark Knight","type":"film","weight":1.0},{"text":"Raiders of the Lost Ark","type":"film","weight":1.0},{"text":"Mad Max: Fury Road","type":"film","weight":1.0}],"neighbors":["ELECTRONIC_HIP","ANIMATION","CRIME_THRILLER"],"explored":true,"art_cached":false},{"id":"ANIMATION","label":"Animation & Visual Art","x":70,"y":50,"engagement":{"total":28.0,"music":0.0,"film":28.0,"book":0.0},"temporal":{},"exemplars":["Miyazaki","Pixar","Laika"],"top_items":[{"title":"Arcane","media_type":"tv_show","source":"fixture","source_id":"f20","poster_url":null,"year":2021,"rating":5.0},{"title":"Spirited Away","media_type":"film","source":"fixture","source_id":"f18","poster_url":null,"year":2001,"rating":5.0},{"title":"Grave of the Fireflies","media_type":"film","source":"fixture","source_id":"f19","poster_url":null,"year":1988,"rating":5.0}],"labels":[{"text":"Arcane","type":"film","weight":1.0},{"text":"Grave of the Fireflies","type":"film","weight":1.0},{"text":"Spirited Away","type":"film","weight":1.0}],"neighbors":["FANTASY_COMEDY","CRIME_THRILLER","ACTION_ADV"],"explored":true,"art_cached":false},{"id":"HISTORY","label":"History & War","x":50,"y":74,"engagement":{"total":30.0,"music":0.0,"film":22.0,"book":8.0},"temporal":{},"exemplars":["Ken Burns","Terrence Malick"],"top_items":[{"title":"Wolf Hall","media_type":"book","source":"fixture","source_id":"b08","poster_url":null,"year":2009,"rating":5.0},{"title":"Schindler's List","media_type":"film","source":"fixture","source_id":"f21","poster_url":null,"year":1993,"rating":5.0}],"labels":[{"text":"Schindler's List","type":"film","weight":1.0},{"text":"Wolf Hall","type":"book","weight":1.0}],"neighbors":["ARTHOUSE","DRAMA","FANTASY_COMEDY"],"explored":true,"art_cached":false}];</script>
-<script>window.BRAIN_ZONES = [{"id":"SOUL_JAZZ","label":"Soul, Jazz & Blues","x":14,"y":32,"engagement":{"total":53.0,"music":45.0,"film":8.0,"book":0.0},"temporal":{},"exemplars":["Nina Simone","Bill Withers","Django Reinhardt","Ella Fitzgerald"],"top_items":[],"labels":[],"neighbors":["INDIE_WORLD","ROCK","FOLK_SINGER"],"explored":true,"art_cached":false},{"id":"FOLK_SINGER","label":"Folk & Singer-Songwriter","x":8,"y":66,"engagement":{"total":30.0,"music":30.0,"film":0.0,"book":0.0},"temporal":{},"exemplars":["Bob Dylan","Paul Simon","Leonard Cohen","Nick Drake"],"top_items":[],"labels":[],"neighbors":["INDIE_WORLD","DRAMA","ROCK"],"explored":true,"art_cached":false},{"id":"ELECTRONIC_HIP","label":"Electronic & Hip-Hop","x":58,"y":28,"engagement":{"total":80.0,"music":80.0,"film":0.0,"book":0.0},"temporal":{},"exemplars":["DJ Shadow","Bonobo","Parov Stelar","Wax Tailor"],"top_items":[],"labels":[],"neighbors":["CRIME_THRILLER","ACTION_ADV","ANIMATION"],"explored":true,"art_cached":false},{"id":"INDIE_WORLD","label":"Indie, Alt & World","x":20,"y":58,"engagement":{"total":55.0,"music":55.0,"film":0.0,"book":0.0},"temporal":{},"exemplars":["dEUS","Eels","Beirut","Stromae"],"top_items":[],"labels":[],"neighbors":["FOLK_SINGER","ROCK","DRAMA"],"explored":true,"art_cached":false},{"id":"ROCK","label":"Rock & Blues","x":36,"y":54,"engagement":{"total":65.0,"music":65.0,"film":0.0,"book":0.0},"temporal":{},"exemplars":["The Beatles","The Rolling Stones","Pink Floyd","Led Zeppelin"],"top_items":[],"labels":[],"neighbors":["INDIE_WORLD","CRIME_THRILLER","DRAMA"],"explored":true,"art_cached":false},{"id":"DRAMA","label":"Drama & Realism","x":30,"y":76,"engagement":{"total":37.0,"music":0.0,"film":25.0,"book":12.0},"temporal":{},"exemplars":["Bergman","Cassavetes","Wong Kar-Wai"],"top_items":[{"title":"Parasite","media_type":"film","source":"fixture","source_id":"f02","poster_url":null,"year":2019,"rating":5.0},{"title":"Chernobyl","media_type":"tv_show","source":"fixture","source_id":"f23","poster_url":null,"year":2019,"rating":5.0},{"title":"Breaking Bad","media_type":"tv_show","source":"fixture","source_id":"f03","poster_url":null,"year":2008,"rating":5.0},{"title":"The Road","media_type":"book","source":"fixture","source_id":"b06","poster_url":null,"year":2006,"rating":5.0},{"title":"Never Let Me Go","media_type":"book","source":"fixture","source_id":"b05","poster_url":null,"year":2005,"rating":5.0},{"title":"The Shawshank Redemption","media_type":"film","source":"fixture","source_id":"f01","poster_url":null,"year":1994,"rating":5.0},{"title":"Paths of Glory","media_type":"film","source":"fixture","source_id":"f22","poster_url":null,"year":1957,"rating":5.0}],"labels":[{"text":"Chernobyl","type":"film","weight":1.0},{"text":"Paths of Glory","type":"film","weight":1.0},{"text":"Breaking Bad","type":"film","weight":1.0},{"text":"Parasite","type":"film","weight":1.0},{"text":"The Shawshank Redemption","type":"film","weight":1.0},{"text":"Never Let Me Go","type":"book","weight":1.0},{"text":"The Road","type":"book","weight":1.0}],"neighbors":["ARTHOUSE","HISTORY","INDIE_WORLD"],"explored":true,"art_cached":false},{"id":"CRIME_THRILLER","label":"Crime, Noir & Thriller","x":55,"y":44,"engagement":{"total":35.0,"music":0.0,"film":30.0,"book":5.0},"temporal":{},"exemplars":["Hitchcock","Coen Brothers","Michael Mann"],"top_items":[{"title":"Pulp Fiction","media_type":"film","source":"fixture","source_id":"f05","poster_url":null,"year":1994,"rating":5.0},{"title":"The Godfather","media_type":"film","source":"fixture","source_id":"f04","poster_url":null,"year":1972,"rating":5.0},{"title":"True Detective","media_type":"tv_show","source":"fixture","source_id":"f06","poster_url":null,"year":2014,"rating":4.0},{"title":"The Girl with the Dragon Tattoo","media_type":"book","source":"fixture","source_id":"b07","poster_url":null,"year":2005,"rating":4.0}],"labels":[{"text":"Pulp Fiction","type":"film","weight":1.0},{"text":"The Godfather","type":"film","weight":1.0},{"text":"True Detective","type":"film","weight":0.8},{"text":"The Girl with the Dragon Tattoo","type":"book","weight":0.8}],"neighbors":["ANIMATION","ELECTRONIC_HIP","ROCK"],"explored":true,"art_cached":false},{"id":"ARTHOUSE","label":"Arthouse & Experimental","x":42,"y":85,"engagement":{"total":26.0,"music":8.0,"film":12.0,"book":6.0},"temporal":{},"exemplars":["Tarkovsky","Godard","David Lynch"],"top_items":[{"title":"The Master and Margarita","media_type":"book","source":"fixture","source_id":"b09","poster_url":null,"year":1967,"rating":5.0},{"title":"The Act of Killing","media_type":"film","source":"fixture","source_id":"f08","poster_url":null,"year":2012,"rating":4.0},{"title":"Jiro Dreams of Sushi","media_type":"film","source":"fixture","source_id":"f07","poster_url":null,"year":2011,"rating":4.0}],"labels":[{"text":"The Master and Margarita","type":"book","weight":1.0},{"text":"The Act of Killing","type":"film","weight":0.8},{"text":"Jiro Dreams of Sushi","type":"film","weight":0.8}],"neighbors":["HISTORY","DRAMA","ROCK"],"explored":true,"art_cached":false},{"id":"SCI_FI","label":"Science Fiction","x":76,"y":76,"engagement":{"total":60.0,"music":0.0,"film":40.0,"book":20.0},"temporal":{},"exemplars":["Dan Simmons","Arthur C. Clarke","Kubrick","Denis Villeneuve"],"top_items":[{"title":"Blade Runner 2049","media_type":"film","source":"fixture","source_id":"f09","poster_url":null,"year":2017,"rating":5.0},{"title":"Arrival","media_type":"film","source":"fixture","source_id":"f10","poster_url":null,"year":2016,"rating":5.0},{"title":"The Three-Body Problem","media_type":"book","source":"fixture","source_id":"b01","poster_url":null,"year":2008,"rating":5.0},{"title":"Dune","media_type":"film","source":"fixture","source_id":"f11","poster_url":null,"year":2021,"rating":4.0},{"title":"Neuromancer","media_type":"book","source":"fixture","source_id":"b02","poster_url":null,"year":1984,"rating":4.0}],"labels":[{"text":"Arrival","type":"film","weight":1.0},{"text":"Blade Runner 2049","type":"film","weight":1.0},{"text":"The Three-Body Problem","type":"book","weight":1.0},{"text":"Dune","type":"film","weight":0.8},{"text":"Neuromancer","type":"book","weight":0.8}],"neighbors":["FANTASY_COMEDY","HISTORY","ANIMATION"],"explored":true,"art_cached":false},{"id":"FANTASY_COMEDY","label":"Fantasy, Comedy & Wit","x":68,"y":62,"engagement":{"total":55.0,"music":0.0,"film":30.0,"book":25.0},"temporal":{},"exemplars":["Terry Pratchett","Douglas Adams","Miyazaki"],"top_items":[{"title":"Good Omens","media_type":"book","source":"fixture","source_id":"b03","poster_url":null,"year":1990,"rating":5.0},{"title":"The Princess Bride","media_type":"film","source":"fixture","source_id":"f13","poster_url":null,"year":1987,"rating":5.0},{"title":"Monty Python and the Holy Grail","media_type":"film","source":"fixture","source_id":"f12","poster_url":null,"year":1975,"rating":5.0},{"title":"Brooklyn Nine-Nine","media_type":"tv_show","source":"fixture","source_id":"f14","poster_url":null,"year":2013,"rating":4.0},{"title":"The Name of the Wind","media_type":"book","source":"fixture","source_id":"b04","poster_url":null,"year":2007,"rating":4.0}],"labels":[{"text":"The Princess Bride","type":"film","weight":1.0},{"text":"Monty Python and the Holy Grail","type":"film","weight":1.0},{"text":"Good Omens","type":"book","weight":1.0},{"text":"Brooklyn Nine-Nine","type":"film","weight":0.8},{"text":"The Name of the Wind","type":"book","weight":0.8}],"neighbors":["ANIMATION","SCI_FI","HISTORY"],"explored":true,"art_cached":false},{"id":"ACTION_ADV","label":"Action & Adventure","x":80,"y":28,"engagement":{"total":35.0,"music":0.0,"film":35.0,"book":0.0},"temporal":{},"exemplars":["Kurosawa","John Huston"],"top_items":[{"title":"Mad Max: Fury Road","media_type":"film","source":"fixture","source_id":"f15","poster_url":null,"year":2015,"rating":5.0},{"title":"The Dark Knight","media_type":"film","source":"fixture","source_id":"f17","poster_url":null,"year":2008,"rating":5.0},{"title":"Raiders of the Lost Ark","media_type":"film","source":"fixture","source_id":"f16","poster_url":null,"year":1981,"rating":5.0}],"labels":[{"text":"The Dark Knight","type":"film","weight":1.0},{"text":"Raiders of the Lost Ark","type":"film","weight":1.0},{"text":"Mad Max: Fury Road","type":"film","weight":1.0}],"neighbors":["ELECTRONIC_HIP","ANIMATION","CRIME_THRILLER"],"explored":true,"art_cached":false},{"id":"ANIMATION","label":"Animation & Visual Art","x":70,"y":50,"engagement":{"total":28.0,"music":0.0,"film":28.0,"book":0.0},"temporal":{},"exemplars":["Miyazaki","Pixar","Laika"],"top_items":[{"title":"Arcane","media_type":"tv_show","source":"fixture","source_id":"f20","poster_url":null,"year":2021,"rating":5.0},{"title":"Spirited Away","media_type":"film","source":"fixture","source_id":"f18","poster_url":null,"year":2001,"rating":5.0},{"title":"Grave of the Fireflies","media_type":"film","source":"fixture","source_id":"f19","poster_url":null,"year":1988,"rating":5.0}],"labels":[{"text":"Arcane","type":"film","weight":1.0},{"text":"Grave of the Fireflies","type":"film","weight":1.0},{"text":"Spirited Away","type":"film","weight":1.0}],"neighbors":["FANTASY_COMEDY","CRIME_THRILLER","ACTION_ADV"],"explored":true,"art_cached":false},{"id":"HISTORY","label":"History & War","x":50,"y":74,"engagement":{"total":30.0,"music":0.0,"film":22.0,"book":8.0},"temporal":{},"exemplars":["Ken Burns","Terrence Malick"],"top_items":[{"title":"Wolf Hall","media_type":"book","source":"fixture","source_id":"b08","poster_url":null,"year":2009,"rating":5.0},{"title":"Schindler's List","media_type":"film","source":"fixture","source_id":"f21","poster_url":null,"year":1993,"rating":5.0}],"labels":[{"text":"Schindler's List","type":"film","weight":1.0},{"text":"Wolf Hall","type":"book","weight":1.0}],"neighbors":["ARTHOUSE","DRAMA","FANTASY_COMEDY"],"explored":true,"art_cached":false}];</script>
+<div id="detail-drawer">
+  <div id="drawer-header">
+    <button id="back-btn" onclick="closeDrawer()">← Map</button>
+    <h2 id="detail-title"></h2>
+  </div>
+  <div id="detail-content">
+    <div class="info-block">
+      <div class="info-heading">Engagement</div>
+      <div class="engagement-bar-label">
+        <span id="detail-engagement-label">—</span>
+        <span id="detail-engagement-pct"></span>
+      </div>
+      <div class="engagement-bar"><div class="engagement-bar-fill" id="detail-bar" style="width:0%"></div></div>
+    </div>
+    <div class="info-block" id="detail-temporal-block">
+      <div class="info-heading">Over time</div>
+      <div class="temporal-bars" id="detail-temporal"></div>
+    </div>
+    <div class="info-block info-block-full">
+      <div class="info-heading">Artists · Films · Books</div>
+      <div class="item-tags" id="detail-items"></div>
+    </div>
+    <div class="info-block info-block-full">
+      <div class="info-heading">Top rated</div>
+      <div class="posters-grid" id="detail-posters"></div>
+    </div>
+    <div class="info-block">
+      <div class="info-heading">Nearby territories</div>
+      <div class="neighbor-chips" id="detail-neighbors"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>window.BRAIN_ZONES = [{"id":"SOUL_JAZZ","label":"Soul, Jazz & Blues","x":22,"y":35,"engagement":{"total":53.0,"music":45.0,"film":8.0,"book":0.0},"temporal":{},"exemplars":["Nina Simone","Bill Withers","Django Reinhardt","Ella Fitzgerald"],"top_items":[],"neighbors":["INDIE_WORLD","FOLK_SINGER","CRIME_THRILLER"],"explored":true,"art_cached":false},{"id":"FOLK_SINGER","label":"Folk & Singer-Songwriter","x":15,"y":65,"engagement":{"total":30.0,"music":30.0,"film":0.0,"book":0.0},"temporal":{},"exemplars":["Bob Dylan","Paul Simon","Leonard Cohen","Nick Drake"],"top_items":[],"neighbors":["DRAMA","INDIE_WORLD","SOUL_JAZZ"],"explored":true,"art_cached":false},{"id":"ELECTRONIC_HIP","label":"Electronic & Hip-Hop","x":58,"y":32,"engagement":{"total":80.0,"music":80.0,"film":0.0,"book":0.0},"temporal":{},"exemplars":["DJ Shadow","Bonobo","Parov Stelar","Wax Tailor"],"top_items":[],"neighbors":["CRIME_THRILLER","ANIMATION","ACTION_ADV"],"explored":true,"art_cached":false},{"id":"INDIE_WORLD","label":"Indie, Alt & World","x":35,"y":50,"engagement":{"total":55.0,"music":55.0,"film":0.0,"book":0.0},"temporal":{},"exemplars":["dEUS","Eels","Beirut","Stromae"],"top_items":[],"neighbors":["SOUL_JAZZ","CRIME_THRILLER","DRAMA"],"explored":true,"art_cached":false},{"id":"DRAMA","label":"Drama & Realism","x":35,"y":72,"engagement":{"total":37.0,"music":0.0,"film":25.0,"book":12.0},"temporal":{},"exemplars":["Bergman","Cassavetes","Wong Kar-Wai"],"top_items":[{"title":"Parasite","media_type":"film","source":"fixture","source_id":"f02","poster_url":null,"year":2019,"rating":5.0},{"title":"Chernobyl","media_type":"tv_show","source":"fixture","source_id":"f23","poster_url":null,"year":2019,"rating":5.0},{"title":"Breaking Bad","media_type":"tv_show","source":"fixture","source_id":"f03","poster_url":null,"year":2008,"rating":5.0},{"title":"The Road","media_type":"book","source":"fixture","source_id":"b06","poster_url":null,"year":2006,"rating":5.0},{"title":"Never Let Me Go","media_type":"book","source":"fixture","source_id":"b05","poster_url":null,"year":2005,"rating":5.0},{"title":"The Shawshank Redemption","media_type":"film","source":"fixture","source_id":"f01","poster_url":null,"year":1994,"rating":5.0},{"title":"Paths of Glory","media_type":"film","source":"fixture","source_id":"f22","poster_url":null,"year":1957,"rating":5.0}],"neighbors":["ARTHOUSE","HISTORY","FOLK_SINGER"],"explored":true,"art_cached":false},{"id":"CRIME_THRILLER","label":"Crime, Noir & Thriller","x":55,"y":44,"engagement":{"total":35.0,"music":0.0,"film":30.0,"book":5.0},"temporal":{},"exemplars":["Hitchcock","Coen Brothers","Michael Mann"],"top_items":[{"title":"Pulp Fiction","media_type":"film","source":"fixture","source_id":"f05","poster_url":null,"year":1994,"rating":5.0},{"title":"The Godfather","media_type":"film","source":"fixture","source_id":"f04","poster_url":null,"year":1972,"rating":5.0},{"title":"True Detective","media_type":"tv_show","source":"fixture","source_id":"f06","poster_url":null,"year":2014,"rating":4.0},{"title":"The Girl with the Dragon Tattoo","media_type":"book","source":"fixture","source_id":"b07","poster_url":null,"year":2005,"rating":4.0}],"neighbors":["ELECTRONIC_HIP","ANIMATION","INDIE_WORLD"],"explored":true,"art_cached":false},{"id":"ARTHOUSE","label":"Arthouse & Experimental","x":42,"y":83,"engagement":{"total":26.0,"music":8.0,"film":12.0,"book":6.0},"temporal":{},"exemplars":["Tarkovsky","Godard","David Lynch"],"top_items":[{"title":"The Master and Margarita","media_type":"book","source":"fixture","source_id":"b09","poster_url":null,"year":1967,"rating":5.0},{"title":"The Act of Killing","media_type":"film","source":"fixture","source_id":"f08","poster_url":null,"year":2012,"rating":4.0},{"title":"Jiro Dreams of Sushi","media_type":"film","source":"fixture","source_id":"f07","poster_url":null,"year":2011,"rating":4.0}],"neighbors":["DRAMA","HISTORY","FOLK_SINGER"],"explored":true,"art_cached":false},{"id":"SCI_FI","label":"Science Fiction","x":76,"y":75,"engagement":{"total":60.0,"music":0.0,"film":40.0,"book":20.0},"temporal":{},"exemplars":["Dan Simmons","Arthur C. Clarke","Kubrick","Denis Villeneuve"],"top_items":[{"title":"Blade Runner 2049","media_type":"film","source":"fixture","source_id":"f09","poster_url":null,"year":2017,"rating":5.0},{"title":"Arrival","media_type":"film","source":"fixture","source_id":"f10","poster_url":null,"year":2016,"rating":5.0},{"title":"The Three-Body Problem","media_type":"book","source":"fixture","source_id":"b01","poster_url":null,"year":2008,"rating":5.0},{"title":"Dune","media_type":"film","source":"fixture","source_id":"f11","poster_url":null,"year":2021,"rating":4.0},{"title":"Neuromancer","media_type":"book","source":"fixture","source_id":"b02","poster_url":null,"year":1984,"rating":4.0}],"neighbors":["FANTASY_COMEDY","ANIMATION","HISTORY"],"explored":true,"art_cached":false},{"id":"FANTASY_COMEDY","label":"Fantasy, Comedy & Wit","x":68,"y":62,"engagement":{"total":55.0,"music":0.0,"film":30.0,"book":25.0},"temporal":{},"exemplars":["Terry Pratchett","Douglas Adams","Miyazaki"],"top_items":[{"title":"Good Omens","media_type":"book","source":"fixture","source_id":"b03","poster_url":null,"year":1990,"rating":5.0},{"title":"The Princess Bride","media_type":"film","source":"fixture","source_id":"f13","poster_url":null,"year":1987,"rating":5.0},{"title":"Monty Python and the Holy Grail","media_type":"film","source":"fixture","source_id":"f12","poster_url":null,"year":1975,"rating":5.0},{"title":"Brooklyn Nine-Nine","media_type":"tv_show","source":"fixture","source_id":"f14","poster_url":null,"year":2013,"rating":4.0},{"title":"The Name of the Wind","media_type":"book","source":"fixture","source_id":"b04","poster_url":null,"year":2007,"rating":4.0}],"neighbors":["ANIMATION","SCI_FI","HISTORY"],"explored":true,"art_cached":false},{"id":"ACTION_ADV","label":"Action & Adventure","x":80,"y":28,"engagement":{"total":35.0,"music":0.0,"film":35.0,"book":0.0},"temporal":{},"exemplars":["Kurosawa","John Huston"],"top_items":[{"title":"Mad Max: Fury Road","media_type":"film","source":"fixture","source_id":"f15","poster_url":null,"year":2015,"rating":5.0},{"title":"The Dark Knight","media_type":"film","source":"fixture","source_id":"f17","poster_url":null,"year":2008,"rating":5.0},{"title":"Raiders of the Lost Ark","media_type":"film","source":"fixture","source_id":"f16","poster_url":null,"year":1981,"rating":5.0}],"neighbors":["ELECTRONIC_HIP","ANIMATION","CRIME_THRILLER"],"explored":true,"art_cached":false},{"id":"ANIMATION","label":"Animation & Visual Art","x":70,"y":50,"engagement":{"total":28.0,"music":0.0,"film":28.0,"book":0.0},"temporal":{},"exemplars":["Miyazaki","Pixar","Laika"],"top_items":[{"title":"Arcane","media_type":"tv_show","source":"fixture","source_id":"f20","poster_url":null,"year":2021,"rating":5.0},{"title":"Spirited Away","media_type":"film","source":"fixture","source_id":"f18","poster_url":null,"year":2001,"rating":5.0},{"title":"Grave of the Fireflies","media_type":"film","source":"fixture","source_id":"f19","poster_url":null,"year":1988,"rating":5.0}],"neighbors":["FANTASY_COMEDY","CRIME_THRILLER","ELECTRONIC_HIP"],"explored":true,"art_cached":false},{"id":"HISTORY","label":"History & War","x":50,"y":72,"engagement":{"total":30.0,"music":0.0,"film":22.0,"book":8.0},"temporal":{},"exemplars":["Ken Burns","Terrence Malick"],"top_items":[{"title":"Wolf Hall","media_type":"book","source":"fixture","source_id":"b08","poster_url":null,"year":2009,"rating":5.0},{"title":"Schindler's List","media_type":"film","source":"fixture","source_id":"f21","poster_url":null,"year":1993,"rating":5.0}],"neighbors":["ARTHOUSE","DRAMA","FANTASY_COMEDY"],"explored":true,"art_cached":false}];</script>
 <script>
-// ── Dimensions — match the atlas image aspect ratio ────────────────────────
-// Image is 3:2 landscape. Fit to viewport.
-const W = Math.min(window.innerWidth * 0.99, 1440);
-const H = Math.round(W * 2 / 3);   // 3:2 ratio
+// ── Dimensions ────────────────────────────────────────────────────────────────
+const W = Math.min(window.innerWidth * 0.98, 1280);
+const H = W * 0.62;
 
-let zonesData=[], maxEngagement=1, currentZoom=1;
-let zonePolygons={}, zoomBehavior;
-let atlasLandMask=null;   // Uint8Array(MW*MH) — 1=land, 0=ocean
-let MW=0, MH=0;            // integer mask dimensions (canvas must use integers)
+let zonesData = [];
+let maxEngagement = 1;
+let selectedZone = null;
+let zonePolygons = {};
+let zoomBehavior;
 
-// ── Zone accent colors (text + stroke on the atlas image) ──────────────────
-const ZONE_ACCENT = {
-  SOUL_JAZZ:       '#7a3a08',
-  FOLK_SINGER:     '#1a4808',
-  ELECTRONIC_HIP:  '#0c1c58',
-  INDIE_WORLD:     '#380a60',
-  ROCK:            '#5a0808',  // deep red — electric rock energy
-  DRAMA:           '#580808',
-  CRIME_THRILLER:  '#0a3030',
-  ARTHOUSE:        '#343808',
-  SCI_FI:          '#0c1848',
-  FANTASY_COMEDY:  '#483a04',
-  ACTION_ADV:      '#581604',
-  ANIMATION:       '#083a20',
-  HISTORY:         '#2c1c04',
+// Per-zone base colors (dark base + lighter version for radial gradient center)
+const ZONE_BASE = {
+  SOUL_JAZZ:       ['#3d2510', '#7a4e2a'],
+  FOLK_SINGER:     ['#1a3016', '#3d6030'],
+  ELECTRONIC_HIP:  ['#0e2235', '#2a4a65'],
+  INDIE_WORLD:     ['#2a1f35', '#5a4070'],
+  DRAMA:           ['#2a1010', '#6a2525'],
+  CRIME_THRILLER:  ['#0a1515', '#253535'],
+  ARTHOUSE:        ['#1a2010', '#3a4520'],
+  SCI_FI:          ['#061828', '#1a4560'],
+  FANTASY_COMEDY:  ['#251808', '#5a3d18'],
+  ACTION_ADV:      ['#2a0e08', '#6a2018'],
+  ANIMATION:       ['#0a2018', '#204535'],
+  HISTORY:         ['#1e1508', '#4a3618'],
 };
+const TYPE_COLORS = { music: '#d4a96a', film: '#7ec8e3', book: '#9abf7a' };
 
-function clamp(a,v,b){return Math.max(a,Math.min(b,v));}
-function scaleX(x){return(x/100)*W;}
-function scaleY(y){return((100-y)/100)*H;}
-function mulberry32(seed){
-  return function(){
-    let t=seed+=0x6D2B79F5;
-    t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);
-    return((t^t>>>14)>>>0)/4294967296;
-  };
-}
+function clamp(a, v, b) { return Math.max(a, Math.min(b, v)); }
+function scaleX(x) { return (x / 100) * W; }
+function scaleY(y) { return ((100 - y) / 100) * H; }
 
-function polygonWidthAt(poly,y){
-  let minX=Infinity,maxX=-Infinity;
-  for(let i=0;i<poly.length-1;i++){
-    const[x0,y0]=poly[i],[x1,y1]=poly[i+1];
-    if((y0<=y&&y1>y)||(y1<=y&&y0>y)){
-      const t=(y-y0)/(y1-y0),x=x0+t*(x1-x0);
-      minX=Math.min(minX,x);maxX=Math.max(maxX,x);
-    }
-  }
-  return maxX>minX?maxX-minX:0;
-}
-
-// ── Voronoi — used for label placement regions ─────────────────────────────
-function buildVoronoi(zones){
-  const pts=zones.map(z=>[scaleX(z.x),scaleY(z.y)]);
-  const delaunay=d3.Delaunay.from(pts);
-  const voronoi=delaunay.voronoi([0,0,W,H]);
-  zones.forEach((z,i)=>{const p=voronoi.cellPolygon(i);if(p)zonePolygons[z.id]=p;});
-}
-
-function mulberry32(seed){
-  return function(){
-    let t=seed+=0x6D2B79F5;
-    t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);
-    return((t^t>>>14)>>>0)/4294967296;
-  };
-}
-function hashCode(s){let h=0;for(let i=0;i<s.length;i++)h=Math.imul(31,h)+s.charCodeAt(i)|0;return Math.abs(h);}
-
-// ── Basemap LOD — heavy mute at overview, reveals on zoom ────────────────
-function updateBasemapLOD(k){
-  // t=0 at overview (k≤1.2), t=1 fully zoomed in (k≥3.0)
-  const t=Math.max(0,Math.min(1,(k-1.2)/1.8));
-  // Subtle muting at overview — enough to let labels lead without draining the image
-  const sat =(0.55+t*0.22).toFixed(3);   // 0.55 → 0.77
-  const con =(0.74+t*0.14).toFixed(3);   // 0.74 → 0.88
-  const bri =(1.06-t*0.04).toFixed(3);   // 1.06 → 1.02
-  d3.select('#atlas-img')
-    .style('filter',`saturate(${sat}) contrast(${con}) brightness(${bri})`);
-  // Very light parchment hint — just enough to warm, not enough to bleach
-  d3.select('#atlas-wash').style('opacity',(0.08*(1-t)+0.02*t).toFixed(3));
-}
-
-// ── Zoom-level label reveal ───────────────────────────────────────────────
-function updateLabelTiers(k){
-  d3.selectAll('.lbl-t2').style('opacity', k>=1.5 ? null : 0);
-  d3.selectAll('.lbl-t3').style('opacity', k>=3.0 ? null : 0);
-  d3.selectAll('.city-marker.lbl-t2').style('opacity', k>=1.5 ? null : 0);
-  d3.selectAll('.city-marker.lbl-t3').style('opacity', k>=3.0 ? null : 0);
-  // Borders: subtle but present at overview, a bit more on zoom
-  d3.selectAll('.zone-border').style('opacity',
-    k>=3.0 ? 0.35 : k>=1.8 ? 0.22 : 0.14);
-}
-
-// ── Per-zone overview label budget (visual balance) ───────────────────────
-const OVERVIEW_BUDGET = {
-  SOUL_JAZZ:9, FOLK_SINGER:9, INDIE_WORLD:7, ROCK:7,
-  DRAMA:6, HISTORY:5, CRIME_THRILLER:5, ELECTRONIC_HIP:6,
-  FANTASY_COMEDY:5, ANIMATION:5, SCI_FI:5, ACTION_ADV:4,
-  ARTHOUSE:6,
-};
-
-// ── Safe-frame clamping for zone names ────────────────────────────────────
-function clampLabelToSafeFrame(x, y, w, h){
-  const pad=38;
-  // also avoid ranking panels
-  const lPanelRight=16+160+10, rPanelLeft=W-16-160-10;
-  const xSafe=[
-    Math.max(pad+w/2, Math.min(W-pad-w/2, x))
-  ];
-  // nudge away from panels if in their vertical range (y < 24+116+10)
-  let cx=xSafe[0];
-  if(y<165){ cx=Math.max(lPanelRight+w/2, Math.min(rPanelLeft-w/2, cx)); }
-  const cy=Math.max(pad+h/2, Math.min(H-pad-h/2, y));
-  return [cx, cy];
-}
-
-// ── Atlas land mask — built from image pixels, constrains label placement ─
-// Ocean pixel detection: significantly more blue than red+green average.
-// Threshold tuned for the muted blue-grey ocean in the ChatGPT atlas image.
-function buildAtlasLandMask(){
-  const img=document.getElementById('atlas-img');
-  if(!img.complete||!img.naturalWidth){ console.log('[atlas-mask] image not ready'); return; }
-  // Must use integer dimensions for canvas/getImageData to work correctly
-  MW=Math.round(W); MH=Math.round(H);
-  const off=document.createElement('canvas');
-  off.width=MW; off.height=MH;
-  const ctx=off.getContext('2d',{willReadFrequently:true});
-  ctx.drawImage(img,0,0,MW,MH);
-  const d=ctx.getImageData(0,0,MW,MH).data;
-  // Sample known-ocean pixel to verify detection
-  const si=(50*MW+200)*4;
-  console.log('[atlas-mask] ocean sample(200,50): r='+d[si]+' g='+d[si+1]+' b='+d[si+2]);
-  atlasLandMask=new Uint8Array(MW*MH);
-  let landCount=0;
-  for(let i=0;i<MW*MH;i++){
-    const r=d[i*4],g=d[i*4+1],b=d[i*4+2];
-    // Ocean: blue is notably higher than red/green; handles muted atlas ocean colors
-    const isOcean=(b-(r+g)/2)>18 && b>70 && r<175;
-    if(!isOcean) landCount++;
-    atlasLandMask[i]=isOcean?0:1;
-  }
-  console.log('[atlas-mask] land='+landCount+'/'+MW*MH+'='+(landCount/MW/MH*100).toFixed(1)+'%');
-}
-
-// Check if a label bounding box is fully on land (no ocean pixels underneath)
-function isAtlasLand(x,y,tw,th){
-  if(!atlasLandMask||!MW) return true;  // mask not ready → allow all (fallback)
-  const pad=3;
-  const pts=[
-    [x,y],
-    [x-tw/3,y-th/3],[x+tw/3,y-th/3],
-    [x-tw/3,y+th/3],[x+tw/3,y+th/3],
-    [x,y-th/2-pad],[x,y+th/2+pad],
-    [x-tw/2-pad,y],[x+tw/2+pad,y],
-  ];
-  return pts.every(([px,py])=>{
-    const xi=Math.max(0,Math.min(MW-1,Math.round(px)));
-    const yi=Math.max(0,Math.min(MH-1,Math.round(py)));
-    return atlasLandMask[yi*MW+xi]===1;
-  });
-}
-
-// ── Zone borders — faint country lines over the atlas image ───────────────
-function renderZoneBorders(svg, zones) {
+// ── Image preload ─────────────────────────────────────────────────────────────
+const loadedImages = {};
+function preloadImages(zones) {
   zones.forEach(zone => {
-    const poly = zonePolygons[zone.id];
-    if (!poly) return;
-    svg.append('path')
-      .attr('d', 'M'+poly.map(p=>p.join(',')).join('L')+'Z')
-      .attr('fill', 'none')
-      .attr('class', 'zone-border')
-      .attr('stroke', 'rgba(80,55,18,1)')  // ink color — opacity controlled in updateLabelTiers
-      .attr('stroke-width', 0.9)
-      .attr('stroke-dasharray', '4,6')
-      .attr('pointer-events', 'none');
+    const img = new Image();
+    img.onload = () => { loadedImages[zone.id] = img; renderTerrain(zones); };
+    img.src = `/static/map-pieces/${zone.id}.png`;
   });
 }
 
-// ── Sub-zone shading — province-like highlight for sub-genre areas ─────────
-// Each zone with a sub-label gets a subtle lighter ellipse region (clipped
-// to its Voronoi polygon) suggesting a "district" or province within the territory.
-function renderSubdivisions(svg, zones) {
-  const defs = svg.append('defs');
+// ── Voronoi ───────────────────────────────────────────────────────────────────
+function buildVoronoi(zones) {
+  const pts = zones.map(z => [scaleX(z.x), scaleY(z.y)]);
+  const delaunay = d3.Delaunay.from(pts);
+  const voronoi  = delaunay.voronoi([0, 0, W, H]);
+  zones.forEach((z, i) => {
+    const poly = voronoi.cellPolygon(i);
+    if (poly) zonePolygons[z.id] = poly;
+  });
+}
+
+// ── Canvas terrain ────────────────────────────────────────────────────────────
+function renderTerrain(zones) {
+  const canvas = document.getElementById('terrain-canvas');
+  const ctx = canvas.getContext('2d');
+
+  // Ocean
+  ctx.fillStyle = '#0c1820';
+  ctx.fillRect(0, 0, W, H);
 
   zones.forEach(zone => {
     const poly = zonePolygons[zone.id];
     if (!poly) return;
-
-    const words = zone.label.split(/[,&]+/).map(s=>s.trim()).filter(Boolean);
-    if (words.length < 2) return;  // no sub-genre, no subdivision
-
+    const [dark, light] = ZONE_BASE[zone.id] || ['#222', '#444'];
     const centroid = d3.polygonCentroid(poly);
     const area = Math.abs(d3.polygonArea(poly));
     const r = Math.sqrt(area / Math.PI);
 
-    // Deterministic placement using zone ID seed
-    const rng = mulberry32(hashCode(zone.id) ^ 0xABCD);
-    const angle = rng() * Math.PI * 2;
-    const dist  = r * (0.28 + rng() * 0.22);  // 28-50% of zone radius from centroid
-    const subCx = centroid[0] + Math.cos(angle) * dist;
-    const subCy = centroid[1] + Math.sin(angle) * dist;
-    const rx    = r * (0.32 + rng() * 0.14);   // 32-46% of zone radius
-    const ry    = rx * (0.65 + rng() * 0.25);  // slightly oval
-    const tilt  = rng() * 50 - 25;
+    ctx.save();
 
-    // Clip path: constrain ellipse to Voronoi polygon
-    const clipId = `sdclip-${zone.id}`;
-    defs.append('clipPath').attr('id', clipId)
-      .append('path')
-      .attr('d', 'M'+poly.map(p=>p.join(',')).join('L')+'Z');
+    // Clip to polygon
+    ctx.beginPath();
+    poly.forEach(([x, y], j) => j === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+    ctx.closePath();
+    ctx.clip();
 
-    // Sub-zone fill: very subtle lighter tint
-    svg.append('ellipse')
-      .attr('cx', subCx).attr('cy', subCy)
-      .attr('rx', rx).attr('ry', ry)
-      .attr('transform', `rotate(${tilt} ${subCx} ${subCy})`)
-      .attr('clip-path', `url(#${clipId})`)
-      .attr('fill', 'rgba(255,248,210,0.16)')
-      .attr('pointer-events', 'none');
+    // Radial gradient fill: lighter center → darker edges (depth)
+    const grad = ctx.createRadialGradient(centroid[0], centroid[1], 0, centroid[0], centroid[1], r * 1.6);
+    grad.addColorStop(0,   light);
+    grad.addColorStop(0.6, dark);
+    grad.addColorStop(1,   dark);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
 
-    // Sub-zone border: dashed golden line
-    svg.append('ellipse')
-      .attr('cx', subCx).attr('cy', subCy)
-      .attr('rx', rx).attr('ry', ry)
-      .attr('transform', `rotate(${tilt} ${subCx} ${subCy})`)
-      .attr('clip-path', `url(#${clipId})`)
-      .attr('fill', 'none')
-      .attr('stroke', 'rgba(220,170,50,0.55)')
-      .attr('stroke-width', 0.8)
-      .attr('stroke-dasharray', '3,2')
-      .attr('pointer-events', 'none');
+    // Island image as terrain texture
+    const img = loadedImages[zone.id];
+    if (img) {
+      const imgSize = r * 2.6;
+      ctx.globalAlpha = 0.62;
+      ctx.drawImage(img, centroid[0] - imgSize / 2, centroid[1] - imgSize / 2, imgSize, imgSize);
+      ctx.globalAlpha = 1;
+    }
+
+    // Inner-edge vignette: darken polygon border for zone depth
+    ctx.shadowColor = 'rgba(0,0,0,0.65)';
+    ctx.shadowBlur  = 30;
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth   = 20;
+    ctx.stroke();
+    ctx.shadowColor = 'transparent';
+
+    ctx.restore();
   });
+
+  // Voronoi border lines — parchment ink
+  ctx.save();
+  zones.forEach(zone => {
+    const poly = zonePolygons[zone.id];
+    if (!poly) return;
+    ctx.beginPath();
+    poly.forEach(([x, y], j) => j === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+    ctx.closePath();
+    ctx.strokeStyle = 'rgba(210,175,120,0.32)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  });
+  ctx.restore();
+
+  // Frame
+  ctx.save();
+  ctx.strokeStyle = 'rgba(210,175,120,0.4)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, W - 2, H - 2);
+  ctx.restore();
+
+  drawCompassRose(ctx, W - 58, H - 58, 32);
 }
 
-// ── SVG labels ─────────────────────────────────────────────────────────────
-function renderLabels(zones){
-  const svg=d3.select('#map-svg');
+function drawCompassRose(ctx, cx, cy, r) {
+  const gold = '#c8a96a', dk = '#7a5c2a', cream = '#f5e8c8';
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, r + 5, 0, Math.PI * 2);
+  ctx.fillStyle = '#0c1820'; ctx.fill();
+  ctx.strokeStyle = gold; ctx.lineWidth = 0.7; ctx.globalAlpha = 0.7; ctx.stroke();
+  ctx.globalAlpha = 1;
+  [0,45,90,135,180,225,270,315].forEach((deg, i) => {
+    const rad = (deg - 90) * Math.PI / 180;
+    const tip = r * (i % 2 === 0 ? 1.0 : 0.58);
+    const side = r * 0.16;
+    const tx = cx + Math.cos(rad) * tip, ty = cy + Math.sin(rad) * tip;
+    const lx = Math.cos(rad - Math.PI/2) * side, ly = Math.sin(rad - Math.PI/2) * side;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + lx, cy + ly); ctx.lineTo(tx, ty); ctx.closePath();
+    ctx.fillStyle = i % 2 === 0 ? cream : gold; ctx.globalAlpha = 0.85; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.lineTo(cx - lx, cy - ly); ctx.closePath();
+    ctx.fillStyle = dk; ctx.fill(); ctx.globalAlpha = 1;
+  });
+  ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI*2); ctx.fillStyle = gold; ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy, 1.5, 0, Math.PI*2); ctx.fillStyle = cream; ctx.fill();
+  // N/S/E/W
+  ctx.font = '600 7px Cinzel, serif'; ctx.fillStyle = gold; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  [['N',0,-1],['S',0,1],['E',1,0],['W',-1,0]].forEach(([l,dx,dy]) =>
+    ctx.fillText(l, cx + dx*(r+12), cy + dy*(r+12)));
+  ctx.restore();
+}
+
+// ── SVG labels ────────────────────────────────────────────────────────────────
+function renderLabels(zones) {
+  const svg = d3.select('#map-svg');
   svg.selectAll('*').remove();
 
-  // ── Layer 0: parchment wash over entire basemap ──
-  svg.append('rect')
-    .attr('x',0).attr('y',0).attr('width',W).attr('height',H)
-    .attr('fill','rgba(232,218,184,0.16)').attr('pointer-events','none');
+  // Subtle lat/lon grid
+  const g = svg.append('g');
+  for (let i = 1; i < 5; i++) {
+    const y = (i / 5) * H;
+    g.append('line').attr('x1',0).attr('y1',y).attr('x2',W).attr('y2',y)
+      .attr('stroke','rgba(180,160,120,0.04)').attr('stroke-dasharray','3,8');
+  }
+  for (let i = 1; i < 7; i++) {
+    const x = (i / 7) * W;
+    g.append('line').attr('x1',x).attr('y1',0).attr('x2',x).attr('y2',H)
+      .attr('stroke','rgba(180,160,120,0.04)').attr('stroke-dasharray','3,8');
+  }
 
-  // ── Layer 1: borders and sub-zone highlights (under labels) ──
-  renderZoneBorders(svg, zones);
-  renderSubdivisions(svg, zones);
+  zones.forEach(zone => {
+    const poly = zonePolygons[zone.id];
+    if (!poly) return;
 
-  // ── Layer 2: parchment fog behind each zone's label cluster ──
-  const defs = svg.select('defs').empty() ? svg.append('defs') : svg.select('defs');
-  zones.forEach(zone=>{
-    const cx=scaleX(zone.x), cy=scaleY(zone.y);
-    const engR=zone.engagement.total/maxEngagement;
-    // INDIE gets a larger, stronger fog to compete with busy city terrain
-    const isIndie=zone.id==='INDIE_WORLD';
-    const r=W*(isIndie?0.10:(0.055+0.065*Math.sqrt(engR)));
-    const grad=defs.append('radialGradient')
-      .attr('id',`fog-${zone.id}`).attr('cx','50%').attr('cy','50%').attr('r','50%');
-    grad.append('stop').attr('offset','0%')
-      .attr('stop-color','#e8dab8').attr('stop-opacity',isIndie?0.28:0.20);
-    grad.append('stop').attr('offset','100%')
-      .attr('stop-color','#e8dab8').attr('stop-opacity',0);
-    svg.append('ellipse')
-      .attr('cx',cx).attr('cy',cy).attr('rx',r).attr('ry',r*0.78)
-      .attr('fill',`url(#fog-${zone.id})`).attr('pointer-events','none');
-  });
+    const centroid = d3.polygonCentroid(poly);
+    const area     = Math.abs(d3.polygonArea(poly));
+    const side     = Math.sqrt(area);
 
-  // Pre-reserve panel areas (match renderOverlay() positions exactly)
-  const R=[
-    {x:W/2,y:10,w:W,h:22},{x:W/2,y:H-10,w:W,h:22},
-    {x:10,y:H/2,w:22,h:H},{x:W-10,y:H/2,w:22,h:H},
-    {x:93,y:82,w:160,h:120},{x:W-93,y:82,w:160,h:120},
-    {x:W/2,y:H-20,w:404,h:48},{x:W-52,y:H-52,w:72,h:72},
-    {x:78,y:H-53,w:128,h:78},
-  ];
+    const nameFz = clamp(28, side * 0.175, 64);
+    const subFz  = clamp(11, side * 0.085, 22);
+    const itemFz = clamp(9,  side * 0.060, 15);
 
-  zones.forEach(zone=>{
-    const poly=zonePolygons[zone.id];
-    if(!poly) return;
-    // Start at layout seed; if on ocean, search outward for nearest land
-    let cx=scaleX(zone.x), cy=scaleY(zone.y);
-    if(atlasLandMask && !isAtlasLand(cx,cy,20,20)){
-      outer: for(let sr=8;sr<120;sr+=8){
-        for(let sa=0;sa<Math.PI*2;sa+=0.25){
-          const tx=cx+Math.cos(sa)*sr, ty=cy+Math.sin(sa)*sr;
-          if(d3.polygonContains(poly,[tx,ty]) && isAtlasLand(tx,ty,20,20)){
-            cx=tx; cy=ty; break outer;
-          }
-        }
-      }
-    }
-    const engR=zone.engagement.total/maxEngagement;
-    const acc=ZONE_ACCENT[zone.id]||'#222';
+    const words   = zone.label.split(/[,&]+/).map(s => s.trim()).filter(Boolean);
+    const main    = words[0].toUpperCase();
+    const sub     = words.slice(1).join(' & ');
 
-    const words=zone.label.split(/[,&]+/).map(s=>s.trim()).filter(Boolean);
-    const main=words[0].toUpperCase(), sub=words.slice(1).join(' & ');
-    const pw=polygonWidthAt(poly,cy);
-    const charW=main.length*0.56;
-    const fzByW=pw>0?(pw*0.54)/charW:80;
-    const fzByE=Math.sqrt(engR)*88;
-    const nameFz=clamp(13,Math.min(fzByW,fzByE),88);
-    const nameH=nameFz*(sub?1.6:1.2);
-    // Clamp to safe frame — prevents FOLK, INDIE, SOUL from touching edge/panels
-    const [scx,scy]=clampLabelToSafeFrame(cx,cy,charW*nameFz,nameH);
-    const centroid=[scx,scy];
-    const nameY=centroid[1]-(sub?nameFz*0.40:0);
+    const nameY = centroid[1] - (sub ? subFz * 0.65 : 0);
 
-    svg.append('text').attr('class','zone-name')
-      .attr('x',centroid[0]).attr('y',nameY).attr('font-size',nameFz)
-      .attr('fill',acc)
-      .attr('stroke','rgba(245,235,210,0.88)')
-      .attr('stroke-width',Math.max(3.5,nameFz*0.10))
-      .attr('stroke-linejoin','round')
-      .attr('letter-spacing',clamp(0.04,nameFz*0.005,0.18)+'em')
-      .attr('opacity',0.94)
+    // Zone name
+    svg.append('text')
+      .attr('class', 'zone-name')
+      .attr('x', centroid[0]).attr('y', nameY)
+      .attr('font-size', nameFz)
+      .attr('stroke', 'rgba(5,12,20,0.88)')
+      .attr('stroke-width', Math.max(3, nameFz * 0.13))
       .text(main);
 
-    if(sub){
-      svg.append('text').attr('class','zone-sub')
-        .attr('x',centroid[0]).attr('y',nameY+nameFz*0.82)
-        .attr('font-size',clamp(8,nameFz*0.38,17))
-        .attr('fill',acc).attr('opacity',0.65)
-        .attr('stroke','rgba(255,255,255,0.50)').attr('stroke-width','2px')
+    if (sub) {
+      svg.append('text')
+        .attr('class', 'zone-sub')
+        .attr('x', centroid[0]).attr('y', nameY + nameFz * 0.72)
+        .attr('font-size', subFz)
         .text(sub);
     }
 
-    R.push({x:centroid[0],y:centroid[1],w:charW*nameFz,h:nameFz*(sub?1.6:1.2)});
-    placeItems(svg,zone,poly,centroid,nameFz,acc,R);
+    // Item labels — spiral placement within polygon
+    placeItems(svg, zone, poly, centroid, nameFz, subFz, itemFz);
 
-    svg.append('path').attr('class','zone-hotspot')
-      .attr('d','M'+poly.map(p=>p.join(',')).join('L')+'Z')
-      .on('click',()=>selectZone(zone));
-  });
+    // Polygon hotspot
+    svg.append('path')
+      .attr('class', 'zone-hotspot')
+      .attr('d', 'M' + poly.map(p => p.join(',')).join('L') + 'Z')
+      .on('click', () => selectZone(zone));
 
-  // (labels always visible — no tier hiding)
-}
-
-function placeItems(svg,zone,poly,centroid,nameFz,acc,R){
-  const items=(zone.labels||[]).slice().sort((a,b)=>b.weight-a.weight);
-  const rngR=mulberry32(0x1234^(zone.id.charCodeAt(0)*137));
-  const pxs=poly.map(p=>p[0]),pys=poly.map(p=>p[1]);
-  const bx0=Math.min(...pxs),bx1=Math.max(...pxs);
-  const by0=Math.min(...pys),by1=Math.max(...pys);
-  let angle=1.1,radius=nameFz*0.80;
-
-  const budget=OVERVIEW_BUDGET[zone.id]??7;
-  let overviewCount=0;
-  items.forEach(item=>{
-    // Base tier from weight
-    let tier=item.weight>=0.60?1:item.weight>=0.25?2:3;
-    // Demote (not skip) beyond per-zone overview budget — zoom-reveal preserved
-    if(tier===1){ overviewCount++; if(overviewCount>budget) tier=2; }
-    const cls=tier===1?'lbl-t1':tier===2?'lbl-t2':'lbl-t3';
-    let fz,ff,fs,op;
-    if(tier===1){
-      fz=clamp(10,nameFz*0.34,18);ff='Cinzel, serif';fs='normal';op=1.0;
-    } else if(tier===2){
-      fz=clamp(7,nameFz*0.23,13);ff='Crimson Text, serif';fs='italic';op=0.84;
-    } else {
-      fz=clamp(5,nameFz*0.15,9);ff='Crimson Text, serif';fs='italic';op=0.66;
-    }
-    const tw=Math.min(item.text.length*fz*0.40,220),th=fz*1.28;
-    let px=0,py=0,found=false;
-
-    // Use a polygon shrunk 30% toward centroid for placement — keeps labels
-    // away from zone edges where atlas image may show ocean channels
-    const innerPoly = poly.map(([x,y])=>[
-      centroid[0]+(x-centroid[0])*0.70,
-      centroid[1]+(y-centroid[1])*0.70,
-    ]);
-    const ok=(tx,ty)=>
-      d3.polygonContains(innerPoly,[tx,ty]) &&
-      !R.some(r=>Math.abs(tx-r.x)<(tw/2+r.w/2+1.2)&&Math.abs(ty-r.y)<(th/2+r.h/2+0.8));
-
-    for(let a=0;a<320&&!found;a++){
-      const tx=centroid[0]+Math.cos(angle)*radius,ty=centroid[1]+Math.sin(angle)*radius*0.75;
-      if(ok(tx,ty)){px=tx;py=ty;found=true;}
-      angle+=0.38;if(a%5===4)radius+=fz*0.60;
-    }
-    if(!found){
-      // Grid scan within inner polygon bounds
-      const ixs=innerPoly.map(p=>p[0]), iys=innerPoly.map(p=>p[1]);
-      const ix0=Math.min(...ixs),ix1=Math.max(...ixs);
-      const iy0=Math.min(...iys),iy1=Math.max(...iys);
-      outer:for(let gy=iy0+th*0.6;gy<iy1-th*0.6;gy+=th*0.80)
-        for(let gx=ix0+tw*0.5;gx<ix1-tw*0.5;gx+=tw*0.68)
-          if(ok(gx,gy)){px=gx;py=gy;found=true;break outer;}
-    }
-    if(!found) return;
-
-    R.push({x:px,y:py,w:tw,h:th});
-    const rot=(rngR()-0.5)*22;
-
-    // City/capital dot marker for tier-1 items
-    if(cls==='lbl-t1'){
-      svg.append('circle')
-        .attr('class',`city-marker ${cls}`)
-        .attr('cx',px).attr('cy',py-th/2-4).attr('r',2.5)
-        .attr('fill',acc).attr('opacity',0.85).attr('pointer-events','none');
-      R.push({x:px,y:py-th/2-4,w:8,h:8});
-    }
-
-    svg.append('text').attr('class',`zone-item ${cls}`)
-      .attr('transform',`translate(${px},${py}) rotate(${rot})`)
-      .attr('x',0).attr('y',0).attr('text-anchor','middle')
-      .attr('font-size',fz).attr('font-family',ff).attr('font-style',fs)
-      .attr('fill',acc)
-      .attr('stroke','rgba(240,228,196,0.78)')
-      .attr('stroke-width',Math.max(1.5,fz*0.12))
-      .attr('stroke-linejoin','round')
-      .attr('opacity',op)
-      .text(item.text.length>30?item.text.slice(0,29)+'…':item.text)
-      .on('click',()=>selectZone(zone));
+    // Selection ring
+    svg.append('path')
+      .attr('class', 'zone-selected-ring')
+      .attr('data-id', zone.id)
+      .attr('d', 'M' + poly.map(p => p.join(',')).join('L') + 'Z')
+      .style('display', 'none');
   });
 }
 
-// ── Overlay (static — never zooms) ─────────────────────────────────────────
-function renderOverlay(){
-  const ov=d3.select('#map-overlay').attr('width',W).attr('height',H);
-  ov.selectAll('*').remove();
+function placeItems(svg, zone, poly, centroid, nameFz, subFz, itemFz) {
+  const items = (zone.labels || []).slice(0, 14);
+  const sub = zone.label.split(/[,&]+/).slice(1).join('').trim();
+  const nameW = zone.label.split(/[,&]/)[0].trim().length * nameFz * 0.6;
 
-  // Double border frame
-  ov.append('rect').attr('x',2).attr('y',2).attr('width',W-4).attr('height',H-4)
-    .attr('fill','none').attr('stroke','rgba(80,60,20,0.55)').attr('stroke-width',2.0);
-  ov.append('rect').attr('x',7).attr('y',7).attr('width',W-14).attr('height',H-14)
-    .attr('fill','none').attr('stroke','rgba(80,60,20,0.22)').attr('stroke-width',0.8)
-    .attr('stroke-dasharray','5,4');
+  // Reserved space: zone name + sub-genre block
+  const placed = [
+    { x: centroid[0], y: centroid[1] - (sub ? subFz * 0.65 : 0), w: nameW, h: nameFz * 1.3 },
+  ];
+  if (sub) {
+    placed.push({ x: centroid[0], y: centroid[1] + nameFz * 0.42, w: sub.length * subFz * 0.44, h: subFz * 1.3 });
+  }
 
-  // Corner medallions
-  [[14,14],[W-14,14],[14,H-14],[W-14,H-14]].forEach(([cx,cy])=>{
-    ov.append('circle').attr('cx',cx).attr('cy',cy).attr('r',10)
-      .attr('fill','rgba(210,200,175,0.88)').attr('stroke','rgba(80,60,20,0.55)').attr('stroke-width',1);
-    ov.append('circle').attr('cx',cx).attr('cy',cy).attr('r',3).attr('fill','rgba(80,60,20,0.6)');
-    [[-1,0],[1,0],[0,-1],[0,1]].forEach(([dx,dy])=>
-      ov.append('line').attr('x1',cx+dx*4).attr('y1',cy+dy*4).attr('x2',cx+dx*11).attr('y2',cy+dy*11)
-        .attr('stroke','rgba(80,60,20,0.50)').attr('stroke-width',1));
+  let angle = 1.1;
+  let radius = nameFz * 0.72;
+
+  items.forEach((item, idx) => {
+    const fz = clamp(9, itemFz * (0.68 + item.weight * 0.62), itemFz * 1.28);
+    const tw = Math.min(item.text.length * fz * 0.41, 170);
+    const th = fz * 1.35;
+    let px = centroid[0], py = centroid[1], found = false;
+
+    for (let att = 0; att < 90 && !found; att++) {
+      const tx = centroid[0] + Math.cos(angle) * radius;
+      const ty = centroid[1] + Math.sin(angle) * radius * 0.72;
+
+      if (d3.polygonContains(poly, [tx, ty]) &&
+          !placed.some(p => Math.abs(tx - p.x) < (tw/2 + p.w/2 + 5) &&
+                             Math.abs(ty - p.y) < (th/2 + p.h/2 + 4))) {
+        px = tx; py = ty; found = true;
+      }
+      angle += 0.58;
+      if (att % 7 === 6) radius += fz * 0.85;
+    }
+
+    if (!found) return;
+    placed.push({ x: px, y: py, w: tw, h: th });
+
+    svg.append('text')
+      .attr('class', 'zone-item')
+      .attr('data-zone', zone.id)
+      .attr('x', px).attr('y', py)
+      .attr('font-size', fz)
+      .attr('fill', TYPE_COLORS[item.type] || '#c8b89a')
+      .attr('stroke', 'rgba(5,12,20,0.75)')
+      .attr('stroke-width', Math.max(1.5, fz * 0.1))
+      .attr('opacity', 0.68 + item.weight * 0.32)
+      .text(item.text.length > 26 ? item.text.slice(0, 25) + '…' : item.text)
+      .on('click', () => selectZone(zone));
   });
+}
 
-  // Lat/lon ticks
-  for(let i=1;i<7;i++){
-    const y=H*i/7,deg=Math.round(60-i*20);
-    [[2,12,'start'],[W-2,W-12,'end']].forEach(([x1,x2,anc])=>{
-      ov.append('line').attr('x1',x1).attr('y1',y).attr('x2',x2).attr('y2',y)
-        .attr('stroke','rgba(80,60,20,0.38)').attr('stroke-width',0.8);
-      ov.append('text').attr('x',anc==='start'?x2+3:x2-3).attr('y',y)
-        .attr('text-anchor',anc).attr('dominant-baseline','middle')
-        .attr('font-size',6.5).attr('font-family','Crimson Text, serif')
-        .attr('fill','rgba(80,60,20,0.65)').text(deg+'°');
+// ── Zoom & selection ──────────────────────────────────────────────────────────
+function selectZone(zone) {
+  selectedZone = zone;
+
+  d3.selectAll('.zone-selected-ring').style('display', 'none');
+  d3.select(`.zone-selected-ring[data-id="${zone.id}"]`).style('display', null);
+
+  const poly = zonePolygons[zone.id];
+  if (poly) {
+    const centroid = d3.polygonCentroid(poly);
+    const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]);
+    const bw = d3.max(xs) - d3.min(xs), bh = d3.max(ys) - d3.min(ys);
+    const scale = Math.min(W / bw * 0.6, H / bh * 0.6, 5.5);
+    const tx = W / 2 - centroid[0] * scale;
+    const ty = H / 2 - centroid[1] * scale;
+    d3.select('#map-outer')
+      .transition().duration(750).ease(d3.easeCubicInOut)
+      .call(zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+  }
+
+  setTimeout(() => {
+    fillDrawer(zone);
+    document.getElementById('detail-drawer').classList.add('open');
+  }, 500);
+}
+
+function closeDrawer() {
+  document.getElementById('detail-drawer').classList.remove('open');
+  d3.select('#map-outer')
+    .transition().duration(650).ease(d3.easeCubicInOut)
+    .call(zoomBehavior.transform, d3.zoomIdentity);
+  setTimeout(() => {
+    d3.selectAll('.zone-selected-ring').style('display', 'none');
+    selectedZone = null;
+  }, 400);
+}
+
+// ── Drawer content ────────────────────────────────────────────────────────────
+function fillDrawer(zone) {
+  document.getElementById('detail-title').textContent = zone.label;
+
+  const pct = Math.round(zone.engagement.total / maxEngagement * 100);
+  document.getElementById('detail-engagement-pct').textContent = pct + '%';
+  document.getElementById('detail-bar').style.width = pct + '%';
+  const bd = [];
+  if (zone.engagement.music > 0) bd.push(Math.round(zone.engagement.music) + 'h music');
+  if (zone.engagement.film  > 0) bd.push(Math.round(zone.engagement.film)  + ' film pts');
+  if (zone.engagement.book  > 0) bd.push(zone.engagement.book.toFixed(1)   + ' book');
+  document.getElementById('detail-engagement-label').textContent = bd.join(' · ') || '—';
+
+  const temporal = zone.temporal || {};
+  const tk = Object.keys(temporal).sort();
+  const tempEl = document.getElementById('detail-temporal');
+  const tempBl = document.getElementById('detail-temporal-block');
+  if (tk.length) {
+    const maxT = Math.max(...Object.values(temporal));
+    tempEl.innerHTML = tk.map(k => `
+      <div class="temporal-bar-wrap">
+        <div style="flex:1;display:flex;align-items:flex-end;width:100%">
+          <div class="temporal-bar" style="height:${Math.max(3,(temporal[k]/maxT)*44)}px"></div>
+        </div>
+        <span class="temporal-bar-label">${k.replace('-','–')}</span>
+      </div>`).join('');
+    tempBl.style.display = '';
+  } else {
+    tempBl.style.display = 'none';
+  }
+
+  document.getElementById('detail-items').innerHTML = (zone.labels || []).map(item =>
+    `<span class="item-tag ${item.type}">${item.text}</span>`).join('');
+
+  document.getElementById('detail-posters').innerHTML = (zone.top_items || []).slice(0, 8).map(item =>
+    `<div class="poster-card" data-title="${item.title}">
+      <span class="poster-title">${item.title}</span>
+    </div>`).join('');
+
+  document.getElementById('detail-neighbors').innerHTML = (zone.neighbors || []).map(nid => {
+    const nz = zonesData.find(z => z.id === nid);
+    return `<span class="neighbor-chip" data-id="${nid}">${nz ? nz.label.split(/[,&]/)[0].trim() : nid}</span>`;
+  }).join('');
+  document.querySelectorAll('.neighbor-chip').forEach(el => {
+    el.addEventListener('click', () => {
+      const nz = zonesData.find(z => z.id === el.dataset.id);
+      if (nz) selectZone(nz);
     });
-  }
-
-  // Ranking panels
-  const mI=[],fI=[];
-  zonesData.forEach(z=>{const es=z.engagement.total;(z.labels||[]).forEach(l=>{
-    if(l.type==='music')mI.push({text:l.text,sc:l.weight*es});
-    else if(l.type==='film')fI.push({text:l.text,sc:l.weight*es});
-  });});
-  mI.sort((a,b)=>b.sc-a.sc);fI.sort((a,b)=>b.sc-a.sc);
-  const tM=[...new Map(mI.map(i=>[i.text,i])).values()].slice(0,9);
-  const tF=[...new Map(fI.map(i=>[i.text,i])).values()].slice(0,9);
-
-  [[16,24,155,116,'MOST LISTENED · ARTISTS',tM,'rgba(80,40,0,0.88)'],
-   [W-171,24,155,116,'MOST WATCHED · FILMS',tF,'rgba(0,20,70,0.88)']].forEach(([x,y,w,h,title,items,col])=>{
-    ov.append('rect').attr('x',x).attr('y',y).attr('width',w).attr('height',h)
-      .attr('fill','rgba(215,205,182,0.94)').attr('stroke','rgba(80,60,20,0.50)').attr('stroke-width',0.9);
-    ov.append('text').attr('x',x+w/2).attr('y',y+10).attr('text-anchor','middle')
-      .attr('font-family','Cinzel, serif').attr('font-size',7.5).attr('font-weight',600)
-      .attr('fill','rgba(30,18,8,0.88)').attr('letter-spacing','0.05em').text(title);
-    ov.append('line').attr('x1',x+4).attr('y1',y+15).attr('x2',x+w-4).attr('y2',y+15)
-      .attr('stroke','rgba(80,60,20,0.35)').attr('stroke-width',0.6);
-    items.forEach((item,i)=>
-      ov.append('text').attr('x',x+8).attr('y',y+22+i*9.8)
-        .attr('dominant-baseline','middle').attr('font-size',6.8)
-        .attr('font-family','Crimson Text, serif').attr('fill',col)
-        .text(`${i+1}. ${item.text.length>20?item.text.slice(0,19)+'…':item.text}`));
   });
 
-  // ── Title cartouche — poster anchor ──────────────────────────────────────
-  const ccx=W*0.5, ccy=H-22, cW=460, cH=60;
-  // Outer parchment box with double border
-  ov.append('rect').attr('x',ccx-cW/2).attr('y',ccy-cH/2).attr('width',cW).attr('height',cH)
-    .attr('fill','rgba(218,208,182,0.96)').attr('stroke','rgba(80,60,20,0.55)').attr('stroke-width',1.4);
-  ov.append('rect').attr('x',ccx-cW/2+4).attr('y',ccy-cH/2+4).attr('width',cW-8).attr('height',cH-8)
-    .attr('fill','none').attr('stroke','rgba(80,60,20,0.28)').attr('stroke-width',0.6);
-  // Side ornamental dashes
-  [[-1,0],[1,0]].forEach(([dx])=>{
-    const sx=ccx+dx*(cW/2-20), sy=ccy;
-    ov.append('line').attr('x1',sx-6).attr('y1',sy).attr('x2',sx+6).attr('y2',sy)
-      .attr('stroke','rgba(80,60,20,0.50)').attr('stroke-width',0.8);
-    ov.append('circle').attr('cx',sx).attr('cy',sy).attr('r',2).attr('fill','rgba(80,60,20,0.55)');
-  });
-  // Corner dots
-  [[ccx-cW/2,ccy-cH/2],[ccx+cW/2,ccy-cH/2],[ccx-cW/2,ccy+cH/2],[ccx+cW/2,ccy+cH/2]].forEach(([x,y])=>
-    ov.append('circle').attr('cx',x).attr('cy',y).attr('r',3).attr('fill','rgba(80,60,20,0.55)'));
-  // Title
-  ov.append('text').attr('x',ccx).attr('y',ccy-10).attr('text-anchor','middle')
-    .attr('font-family','Cinzel, serif').attr('font-size',15).attr('font-weight',700)
-    .attr('fill','rgba(30,18,8,0.94)').attr('letter-spacing','0.10em')
-    .text('YOUR TASTE MAP');
-  ov.append('text').attr('x',ccx).attr('y',ccy+8).attr('text-anchor','middle')
-    .attr('font-family','Crimson Text, serif').attr('font-style','italic').attr('font-size',9.5)
-    .attr('fill','rgba(30,18,8,0.62)')
-    .text('A personal atlas of music, film, books and worlds');
-
-  // Compass rose
-  const[crx,cry,crr]=[W-52,H-52,24];
-  const cr=ov.append('g').attr('pointer-events','none').attr('opacity',0.90);
-  cr.append('circle').attr('cx',crx).attr('cy',cry).attr('r',crr+5)
-    .attr('fill','rgba(215,205,182,0.92)').attr('stroke','rgba(80,60,20,0.50)').attr('stroke-width',0.9);
-  const gold='#906020',dk='#604010',cream='#e8dab8';
-  [0,45,90,135,180,225,270,315].forEach((deg,i)=>{
-    const rad=(deg-90)*Math.PI/180,tip=crr*(i%2===0?1.0:0.55),side=crr*0.14;
-    const tx=crx+Math.cos(rad)*tip,ty=cry+Math.sin(rad)*tip;
-    const lx=Math.cos(rad-Math.PI/2)*side,ly=Math.sin(rad-Math.PI/2)*side;
-    cr.append('polygon').attr('points',`${crx},${cry} ${crx+lx},${cry+ly} ${tx},${ty}`)
-      .attr('fill',i%2===0?cream:gold).attr('opacity',0.92);
-    cr.append('polygon').attr('points',`${crx},${cry} ${tx},${ty} ${crx-lx},${cry-ly}`).attr('fill',dk);
-  });
-  cr.append('circle').attr('cx',crx).attr('cy',cry).attr('r',3).attr('fill',gold);
-  [['N',0,-1],['S',0,1],['E',1,0],['W',-1,0]].forEach(([l,dx,dy])=>
-    cr.append('text').attr('x',crx+dx*(crr+11)).attr('y',cry+dy*(crr+11))
-      .attr('text-anchor','middle').attr('dominant-baseline','middle')
-      .attr('font-family','Cinzel, serif').attr('font-size',7).attr('font-weight',600)
-      .attr('fill',gold).text(l));
+  loadPosters(zone);
 }
 
-// ── Interaction ────────────────────────────────────────────────────────────
-function selectZone(zone){
-  d3.selectAll('.zone-selected-ring').remove();
-  const poly=zonePolygons[zone.id];
-  if(poly){
-    d3.select('#map-svg').append('path').attr('class','zone-selected-ring').attr('pointer-events','none')
-      .attr('d','M'+poly.map(p=>p.join(',')).join('L')+'Z')
-      .attr('fill','none').attr('stroke',ZONE_ACCENT[zone.id]||'#333')
-      .attr('stroke-width',2.5).attr('opacity',0.8);
-    const c=d3.polygonCentroid(poly);
-    const xs=poly.map(p=>p[0]),ys=poly.map(p=>p[1]);
-    const bw=d3.max(xs)-d3.min(xs),bh=d3.max(ys)-d3.min(ys);
-    const s=Math.min(W/bw*0.52,H/bh*0.52,7);
-    d3.select('#map-outer').transition().duration(700).ease(d3.easeCubicInOut)
-      .call(zoomBehavior.transform,d3.zoomIdentity.translate(W/2-c[0]*s,H/2-c[1]*s).scale(s));
-  }
-}
-function resetZoom(){
-  d3.selectAll('.zone-selected-ring').remove();
-  d3.select('#map-outer').transition().duration(600).ease(d3.easeCubicInOut)
-    .call(zoomBehavior.transform,d3.zoomIdentity);
+async function loadPosters(zone) {
+  try {
+    const res = await fetch(`/api/brain/zone/${zone.id}/posters`);
+    if (!res.ok) return;
+    const items = await res.json();
+    const grid = document.getElementById('detail-posters');
+    items.forEach((item, i) => {
+      const card = grid.children[i];
+      if (!card || !item.poster_url) return;
+      card.innerHTML = `<img src="${item.poster_url}" alt="${item.title}" loading="lazy"
+        onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <span class="poster-title" style="display:none">${item.title}</span>`;
+    });
+  } catch (e) { /* silent */ }
 }
 
-// ── Bootstrap ──────────────────────────────────────────────────────────────
-function renderBrain(zones){
-  zonesData=zones;
-  maxEngagement=d3.max(zones,d=>d.engagement.total)||1;
 
-  // Size everything to W×H
-  const img=document.getElementById('atlas-img');
-  img.style.width=W+'px'; img.style.height=H+'px';
-  d3.select('#map-svg').attr('width',W).attr('height',H);
-  d3.select('#map-overlay').attr('width',W).attr('height',H);
-  d3.select('#map-wrap').style('width',W+'px').style('height',H+'px');
-  d3.select('#map-outer').style('width',W+'px').style('height',H+'px');
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+function renderBrain(zones) {
+  zonesData = zones;
+  maxEngagement = d3.max(zones, d => d.engagement.total) || 1;
+
+  const canvas = document.getElementById('terrain-canvas');
+  canvas.width  = W;  canvas.height = H;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+
+  d3.select('#map-svg').attr('width', W).attr('height', H);
+  d3.select('#map-wrap').style('width', W + 'px').style('height', H + 'px');
+  d3.select('#map-outer').style('width', W + 'px').style('height', H + 'px');
 
   buildVoronoi(zones);
-  buildAtlasLandMask();  // pixel mask from atlas image — constrains labels to land
 
-  zoomBehavior=d3.zoom().scaleExtent([0.5,22])
-    .on('zoom',({transform})=>{
-      d3.select('#map-wrap').style('transform',`translate(${transform.x}px,${transform.y}px) scale(${transform.k})`);
-      currentZoom=transform.k;
-      updateLabelTiers(transform.k);
-      updateBasemapLOD(transform.k);  // muted overview → rich illustration on zoom
+  zoomBehavior = d3.zoom()
+    .scaleExtent([0.5, 9])
+    .on('zoom', ({ transform }) => {
+      d3.select('#map-wrap')
+        .style('transform', `translate(${transform.x}px,${transform.y}px) scale(${transform.k})`);
     });
   d3.select('#map-outer').call(zoomBehavior);
 
-  document.fonts.ready.then(()=>{
-    renderOverlay();         // panels FIRST so their areas are pre-reserved in R[]
-    renderLabels(zones);     // labels SECOND — no overlap with panels
-    updateLabelTiers(1);
-    updateBasemapLOD(1);    // apply initial muted state
-  });
+  renderTerrain(zones);
+  // Wait for fonts before rendering SVG text
+  document.fonts.ready.then(() => renderLabels(zones));
+  preloadImages(zones);
 }
 
-async function init(){
+async function init() {
   document.getElementById('loading-overlay').classList.add('visible');
-  try{
-    let zones;
-    if(window.BRAIN_ZONES) zones=window.BRAIN_ZONES;
-    else {
-      const r=await fetch('/api/brain/zones');
-      if(!r.ok) throw new Error(r.status);
-      zones=await r.json();
-    }
-    // Wait for atlas image to load before sizing
-    const img=document.getElementById('atlas-img');
-    if(!img.complete){
-      await new Promise(res=>{ img.onload=res; img.onerror=res; });
-    }
-    renderBrain(zones);
-  } catch(e){
-    document.getElementById('loading-overlay').querySelector('span').textContent='Failed to load — server running?';
+  if (window.BRAIN_ZONES) {
+    renderBrain(window.BRAIN_ZONES);
+    document.getElementById('loading-overlay').classList.remove('visible');
+    return;
+  }
+  try {
+    const res = await fetch('/api/brain/zones');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    renderBrain(await res.json());
+  } catch (e) {
+    document.getElementById('loading-overlay').querySelector('span').textContent =
+      'Failed to load — is the server running?';
     return;
   }
   document.getElementById('loading-overlay').classList.remove('visible');
 }
 
-document.addEventListener('keydown',e=>{ if(e.key==='Escape') resetZoom(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('detail-drawer').classList.contains('open'))
+    closeDrawer();
+});
+
 init();
 </script>
 </body>

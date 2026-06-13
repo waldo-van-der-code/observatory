@@ -11,99 +11,13 @@ import sqlite3
 from collections import defaultdict
 from pathlib import Path
 
-# Copied from enrich_music_genres.py — maps MusicBrainz tags to taste zones
-MUSIC_TAG_TAXONOMY: dict[str, str] = {
-    # SOUL_JAZZ
-    "soul": "SOUL_JAZZ", "r&b": "SOUL_JAZZ", "rhythm and blues": "SOUL_JAZZ",
-    "blues": "SOUL_JAZZ", "gospel": "SOUL_JAZZ", "funk": "SOUL_JAZZ",
-    "jazz": "SOUL_JAZZ", "bebop": "SOUL_JAZZ", "swing": "SOUL_JAZZ",
-    "big band": "SOUL_JAZZ", "gypsy jazz": "SOUL_JAZZ", "manouche": "SOUL_JAZZ",
-    "acid jazz": "SOUL_JAZZ", "nu jazz": "SOUL_JAZZ", "jazz fusion": "SOUL_JAZZ",
-    "neo soul": "SOUL_JAZZ", "bossa nova": "SOUL_JAZZ", "samba": "SOUL_JAZZ",
-    "motown": "SOUL_JAZZ", "electro swing": "SOUL_JAZZ", "doo-wop": "SOUL_JAZZ",
-    "smooth jazz": "SOUL_JAZZ", "cool jazz": "SOUL_JAZZ",
-    # FOLK_SINGER
-    "folk": "FOLK_SINGER", "singer-songwriter": "FOLK_SINGER",
-    "singer/songwriter": "FOLK_SINGER", "country": "FOLK_SINGER",
-    "americana": "FOLK_SINGER", "folk rock": "FOLK_SINGER",
-    "chamber folk": "FOLK_SINGER", "chamberfolk": "FOLK_SINGER",
-    "neofolk": "FOLK_SINGER", "neo-folk": "FOLK_SINGER",
-    "anti-folk": "FOLK_SINGER", "sadcore": "FOLK_SINGER",
-    "baroque pop": "FOLK_SINGER", "chanson": "FOLK_SINGER",
-    "new weird america": "FOLK_SINGER", "alt-country": "FOLK_SINGER",
-    "acoustic": "FOLK_SINGER", "protest": "FOLK_SINGER",
-    "celtic": "FOLK_SINGER", "bluegrass": "FOLK_SINGER",
-    "appalachian": "FOLK_SINGER", "storytelling": "FOLK_SINGER",
-    "torch song": "FOLK_SINGER",
-    # ELECTRONIC_HIP
-    "hip hop": "ELECTRONIC_HIP", "hip-hop": "ELECTRONIC_HIP",
-    "rap": "ELECTRONIC_HIP", "trip-hop": "ELECTRONIC_HIP",
-    "trip hop": "ELECTRONIC_HIP", "downtempo": "ELECTRONIC_HIP",
-    "electronic": "ELECTRONIC_HIP", "electronica": "ELECTRONIC_HIP",
-    "house": "ELECTRONIC_HIP", "techno": "ELECTRONIC_HIP",
-    "drum and bass": "ELECTRONIC_HIP", "dnb": "ELECTRONIC_HIP",
-    "dubstep": "ELECTRONIC_HIP", "electro": "ELECTRONIC_HIP",
-    "idm": "ELECTRONIC_HIP", "intelligent dance music": "ELECTRONIC_HIP",
-    "breakbeat": "ELECTRONIC_HIP", "jungle": "ELECTRONIC_HIP",
-    "glitch": "ELECTRONIC_HIP", "chillhop": "ELECTRONIC_HIP",
-    "lo-fi": "ELECTRONIC_HIP", "lo fi": "ELECTRONIC_HIP",
-    "lo-fi hip hop": "ELECTRONIC_HIP", "future bass": "ELECTRONIC_HIP",
-    "chill out": "ELECTRONIC_HIP", "chillout": "ELECTRONIC_HIP",
-    # ROCK — classic/electric rock, blues rock, punk, glam, prog
-    "rock": "ROCK", "classic rock": "ROCK",
-    "blues rock": "ROCK", "hard rock": "ROCK",
-    "psychedelic rock": "ROCK", "psychedelia": "ROCK",
-    "neo-psychedelia": "ROCK", "prog rock": "ROCK",
-    "progressive rock": "ROCK", "new wave": "ROCK",
-    "post-punk": "ROCK", "punk": "ROCK",
-    "punk rock": "ROCK", "glam rock": "ROCK",
-    "soft rock": "ROCK", "adult contemporary": "ROCK",
-    "krautrock": "ROCK",
-    # INDIE_WORLD — indie, alt, world, pop crossover
-    "indie rock": "INDIE_WORLD", "indie pop": "INDIE_WORLD",
-    "indie folk": "INDIE_WORLD", "alternative rock": "INDIE_WORLD",
-    "alternative": "INDIE_WORLD", "art rock": "INDIE_WORLD",
-    "post-rock": "INDIE_WORLD", "post rock": "INDIE_WORLD",
-    "world music": "INDIE_WORLD", "afrobeat": "INDIE_WORLD",
-    "afrobeats": "INDIE_WORLD", "latin": "INDIE_WORLD",
-    "reggae": "INDIE_WORLD", "ska": "INDIE_WORLD",
-    "pop": "INDIE_WORLD", "cabaret": "INDIE_WORLD", "comedy": "INDIE_WORLD",
-    "lounge": "INDIE_WORLD", "exotica": "INDIE_WORLD",
-    "tropicália": "INDIE_WORLD", "tropicalia": "INDIE_WORLD",
-    "cumbia": "INDIE_WORLD", "flamenco": "INDIE_WORLD",
-    "fado": "INDIE_WORLD", "tango": "INDIE_WORLD",
-    "balkan": "INDIE_WORLD", "klezmer": "INDIE_WORLD",
-    # ARTHOUSE
-    "experimental": "ARTHOUSE", "avant-garde": "ARTHOUSE",
-    "ambient": "ARTHOUSE", "noise": "ARTHOUSE",
-    "drone": "ARTHOUSE", "modern classical": "ARTHOUSE",
-    "contemporary classical": "ARTHOUSE", "classical": "ARTHOUSE",
-    "minimalism": "ARTHOUSE", "minimalist": "ARTHOUSE",
-    "sound art": "ARTHOUSE", "field recordings": "ARTHOUSE",
-    "musique concrète": "ARTHOUSE", "musique concrete": "ARTHOUSE",
-    "post-minimalism": "ARTHOUSE", "neo-classical": "ARTHOUSE",
-    "neoclassical": "ARTHOUSE",
-}
-
 ROOT = Path(__file__).parent.parent
-LAYOUT_PATH   = ROOT / "config" / "layout.json"
+LAYOUT_PATH = ROOT / "config" / "layout.json"
 EXEMPLARS_PATH = ROOT / "config" / "exemplars.json"
 MAP_DATA_PATH = ROOT / "data" / "processed" / "map_data.json"
-DB_PATH       = ROOT / "data" / "processed" / "entertainment.db"
-OUT_PATH      = ROOT / "data" / "processed" / "brain_data.json"
-MB_CACHE_PATH = ROOT / "data" / "cache" / "mb_genres.json"
-ART_CACHE     = ROOT / "data" / "cache" / "brain_art"
-
-NODE_IDS = [
-    "SOUL_JAZZ", "FOLK_SINGER", "ELECTRONIC_HIP", "INDIE_WORLD",
-    "ROCK",
-    "DRAMA", "CRIME_THRILLER", "ARTHOUSE", "SCI_FI",
-    "FANTASY_COMEDY", "ACTION_ADV", "ANIMATION", "HISTORY",
-]
-
-NOISE_ARTISTS = {
-    "sleep-o-phant", "jason stephenson", "richards kindermusikleder", "kalle klang",
-}
+DB_PATH = ROOT / "data" / "processed" / "entertainment.db"
+OUT_PATH = ROOT / "data" / "processed" / "brain_data.json"
+ART_CACHE = ROOT / "data" / "cache" / "brain_art"
 
 # Mirror from build_map_data.py — maps IMDb genre → zone
 FILM_GENRE_MAP: dict[str, str] = {
@@ -230,7 +144,7 @@ def _zone_for_item(media_type: str, genres_json: str | None, title: str) -> str 
 
 
 def _get_top_items(conn: sqlite3.Connection) -> dict[str, list[dict]]:
-    """Return up to 12 top-rated items per zone. Poster URLs fetched lazily by the API."""
+    """Return up to 8 top-rated items per zone. Poster URLs fetched lazily by the API."""
     rows = conn.execute("""
         SELECT
             m.id, m.title, m.media_type, m.source, m.source_id,
@@ -270,142 +184,10 @@ def _get_top_items(conn: sqlite3.Connection) -> dict[str, list[dict]]:
     return dict(zone_items)
 
 
-def _get_labels(conn: sqlite3.Connection, mb_cache: dict) -> dict[str, list[dict]]:
-    """Build top-60 map labels per zone: [{text, type, weight}] sorted by weight desc."""
-    # {zone: [(text, type, raw_score), ...]}
-    zone_raw: dict[str, list[tuple[str, str, float]]] = defaultdict(list)
-
-    # ── Music artists ────────────────────────────────────────────────────────
-    rows = conn.execute(
-        "SELECT artist, SUM(ms_played)/3600000.0 as hours "
-        "FROM spotify_plays WHERE artist IS NOT NULL GROUP BY artist ORDER BY hours DESC"
-    ).fetchall()
-
-    for artist, hours in rows:
-        if not hours or artist.lower() in NOISE_ARTISTS:
-            continue
-        tags = mb_cache.get(artist, [])
-        if not tags:
-            continue
-        tag_weights = [1.0, 0.7, 0.5, 0.4, 0.3]
-        mapped: dict[str, float] = defaultdict(float)
-        for i, tag in enumerate(tags[:5]):
-            node = MUSIC_TAG_TAXONOMY.get(tag)
-            if node:
-                mapped[node] += tag_weights[i]
-        if not mapped:
-            continue
-        primary_zone = max(mapped, key=lambda k: mapped[k])
-        zone_raw[primary_zone].append((artist, "music", float(hours)))
-
-    # ── Films / TV shows ─────────────────────────────────────────────────────
-    rows = conn.execute("""
-        SELECT m.title, m.genres, MAX(ui.rating) as rating
-        FROM media_items m
-        JOIN user_interactions ui ON ui.media_id = m.id
-        WHERE m.media_type IN ('film', 'tv_show')
-          AND ui.rating IS NOT NULL
-          AND m.genres IS NOT NULL
-        GROUP BY m.id
-        ORDER BY rating DESC
-    """).fetchall()
-
-    seen_film: dict[str, set[str]] = defaultdict(set)
-    for title, genres_json, rating in rows:
-        try:
-            genres = json.loads(genres_json)
-        except Exception:
-            continue
-        for genre in genres:
-            zone = FILM_GENRE_MAP.get(genre)
-            if zone and title not in seen_film[zone]:
-                zone_raw[zone].append((title, "film", float(rating)))
-                seen_film[zone].add(title)
-                break  # primary genre only
-
-    # ── Books (Goodreads) ────────────────────────────────────────────────────
-    rows = conn.execute("""
-        SELECT m.title, m.genres, MAX(ui.rating) as rating
-        FROM media_items m
-        JOIN user_interactions ui ON ui.media_id = m.id
-        WHERE m.media_type = 'book'
-          AND m.genres IS NOT NULL
-        GROUP BY m.id
-    """).fetchall()
-
-    seen_book: dict[str, set[str]] = defaultdict(set)
-    for title, genres_json, rating in rows:
-        try:
-            genres = json.loads(genres_json)
-        except Exception:
-            continue
-        for genre in genres:
-            zone = BOOK_GENRE_MAP.get(genre)
-            if zone and title not in seen_book[zone]:
-                zone_raw[zone].append((title, "book", float(rating or 3.0)))
-                seen_book[zone].add(title)
-                break
-
-    # ── Audiobooks (Audible) ─────────────────────────────────────────────────
-    audio_rows = conn.execute(
-        "SELECT title FROM media_items WHERE source='audible'"
-    ).fetchall()
-    for (title,) in audio_rows:
-        zones = AUDIBLE_GENRES.get(title.lower().strip())
-        if zones:
-            primary_zone = zones[0]
-            if title not in seen_book[primary_zone]:
-                zone_raw[primary_zone].append((title, "book", 3.5))
-                seen_book[primary_zone].add(title)
-
-    # ── Normalize per zone and pick top 15 ───────────────────────────────────
-    result: dict[str, list[dict]] = {}
-    for zone in NODE_IDS:
-        items = zone_raw.get(zone, [])
-        if not items:
-            result[zone] = []
-            continue
-
-        items.sort(key=lambda x: x[2], reverse=True)
-        max_raw = items[0][2]
-
-        compiled = []
-        for text, typ, raw in items[:60]:
-            compiled.append({
-                "text": text,
-                "type": typ,
-                "weight": round(raw / max_raw, 3) if max_raw > 0 else 0.0,
-            })
-        result[zone] = compiled
-
-    return result
-
-
-BRAIN_HTML = ROOT / "brain.html"
-_PLACEHOLDER = "/* BRAIN_DATA_PLACEHOLDER */"
-
-
-def _patch_brain_html(brain: list[dict]) -> None:
-    html = BRAIN_HTML.read_text()
-    inline = f"window.BRAIN_ZONES = {json.dumps(brain, separators=(',', ':'))};"
-    patched = html.replace(_PLACEHOLDER, inline)
-    if patched == html:
-        print("Warning: brain.html placeholder not found — skipping inline patch")
-        return
-    BRAIN_HTML.write_text(patched)
-    print(f"Patched brain.html with inline zone data ({len(inline)} chars)")
-
-
 def build() -> None:
     layout = json.loads(LAYOUT_PATH.read_text())
     exemplars = json.loads(EXEMPLARS_PATH.read_text())
     map_data = json.loads(MAP_DATA_PATH.read_text())
-
-    mb_cache: dict = {}
-    if MB_CACHE_PATH.exists():
-        mb_cache = json.loads(MB_CACHE_PATH.read_text())
-    else:
-        print(f"Warning: {MB_CACHE_PATH} not found — music labels will be empty")
 
     # Index map_data by zone id
     map_index: dict[str, dict] = {n["id"]: n for n in map_data["nodes"]}
@@ -416,7 +198,6 @@ def build() -> None:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     top_items = _get_top_items(conn)
-    labels = _get_labels(conn, mb_cache)
     conn.close()
 
     ART_CACHE.mkdir(parents=True, exist_ok=True)
@@ -447,7 +228,6 @@ def build() -> None:
             "temporal": md.get("temporal", {}),
             "exemplars": exemplars.get(nid, [])[:4],
             "top_items": top_items.get(nid, []),
-            "labels": labels.get(nid, []),
             "neighbors": neighbors[nid],
             "explored": total > 10,
             "art_cached": art_cached,
@@ -456,14 +236,11 @@ def build() -> None:
     OUT_PATH.write_text(json.dumps(brain, indent=2))
     print(f"Wrote {OUT_PATH} with {len(brain)} zones")
 
-    _patch_brain_html(brain)
-
     max_total = max(z["engagement"]["total"] for z in brain)
     for z in brain:
         pct = z["engagement"]["total"] / max_total * 100
-        lbl_ct = len(z["labels"])
         items_ct = len(z["top_items"])
-        print(f"  {z['id']:18s}  total={z['engagement']['total']:7.1f}  ({pct:4.0f}%)  labels={lbl_ct:2d}  items={items_ct}")
+        print(f"  {z['id']:18s}  total={z['engagement']['total']:7.1f}  ({pct:4.0f}%)  items={items_ct}  neighbors={z['neighbors']}")
 
 
 if __name__ == "__main__":

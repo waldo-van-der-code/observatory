@@ -3,7 +3,6 @@
   "FOLK_SINGER":    ["Bob Dylan", "Paul Simon", "Leonard Cohen", "Nick Drake", "José González"],
   "ELECTRONIC_HIP": ["DJ Shadow", "Bonobo", "Parov Stelar", "Wax Tailor", "Chinese Man"],
   "INDIE_WORLD":    ["dEUS", "Eels", "Beirut", "Stromae", "Tom Waits"],
-  "ROCK":           ["The Beatles", "The Rolling Stones", "Pink Floyd", "Led Zeppelin", "Neil Young"],
   "DRAMA":          ["Bergman", "Cassavetes", "Wong Kar-Wai"],
   "CRIME_THRILLER": ["Hitchcock", "Coen Brothers", "Michael Mann"],
   "ARTHOUSE":       ["Tarkovsky", "Godard", "David Lynch"],
