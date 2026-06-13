@@ -1,0 +1,16 @@
+{
+  "name": "observatory",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "tsx evals/smoke.ts && playwright test",
+    "test:smoke": "tsx evals/smoke.ts",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "playwright": "^1.52.0",
+    "tsx": "^4.19.4"
+  }
+}
