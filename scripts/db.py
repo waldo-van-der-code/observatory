@@ -1,4 +1,4 @@
-#!/Users/waldo.vanderhaeghen/Library/Scripts/watcher-env/bin/python3
+#!/usr/bin/env python3
 """Shared database setup for the entertainment dashboard."""
 
 import json

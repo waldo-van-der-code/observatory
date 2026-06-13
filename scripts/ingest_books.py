@@ -1,4 +1,4 @@
-#!/Users/waldo.vanderhaeghen/Library/Scripts/watcher-env/bin/python3
+#!/usr/bin/env python3
 """Ingest Goodreads CSV + Audible JSON stub into entertainment.db."""
 
 import csv

@@ -1,4 +1,4 @@
-#!/Users/waldo.vanderhaeghen/Library/Scripts/watcher-env/bin/python3
+#!/usr/bin/env python3
 """Generate taste profile + recommendations via Claude, store in entertainment.db."""
 
 import argparse
@@ -21,16 +21,19 @@ CACHE_DIR = Path(__file__).parent.parent / "data" / "cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 PROFILE_CACHE = CACHE_DIR / "claude_profile_cache.json"
 
-TASTE_SEED = """
-Known taste vocabulary (validated from prior analysis, April 2026):
-Books — Hard sci-fi: Liu Cixin, Greg Egan, Dan Simmons, Stephen Baxter
-Books — Epic fantasy with moral complexity: Red Rising, First Law, Will of the Many
-Books — Satire/comedy: Discworld (all of it — 38 books)
-Books — 5-star: Red Rising, Will of the Many, Children of Time, Hyperion
-Films — 647 IMDb ratings available; liked list includes Inception, Whiplash, etc.
-TV — 147 IMDb ratings; JustWatch seen list adds 106 more films/shows
-Dislikes: slow starts, unresolved endings, unfinished series, emotionally hollow characters
-"""
+def _load_taste_seed() -> str:
+    """Load optional taste hints from ~/.config/observatory/taste_seed.txt.
+
+    Create this file to prime the profile with known preferences, e.g.:
+      Books — Hard sci-fi: Liu Cixin, Greg Egan
+      Films — 5-star: Blade Runner 2049, Whiplash
+      Dislikes: slow starts, unresolved endings
+    Leave the file absent to let the rated history speak for itself.
+    """
+    seed_path = Path("~/.config/observatory/taste_seed.txt").expanduser()
+    return seed_path.read_text().strip() if seed_path.exists() else ""
+
+TASTE_SEED = _load_taste_seed()
 
 
 def _get_client() -> anthropic.Anthropic:

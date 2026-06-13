@@ -35,6 +35,10 @@ build/
 .vscode/
 *.swp
 
+# Test artifacts (contain local absolute paths)
+evals/raw/
+test-results/
+
 # Logs
 *.log
 

@@ -1,4 +1,4 @@
-#!/Users/waldo.vanderhaeghen/Library/Scripts/watcher-env/bin/python3
+#!/usr/bin/env python3
 """Ingest Audible finished books CSV into entertainment.db.
 
 For books already in DB (from Goodreads), marks them as also listened.
@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from db import get_conn, init_db
 
-AUDIBLE_CSV = Path("/Users/waldo.vanderhaeghen/Documents/AI-projects-personal/Fun!/books/audible_finished.csv")
+AUDIBLE_CSV = Path(__file__).parent.parent / "data" / "raw" / "audible_finished.csv"
 
 SERIES_MAP = {
     "Red Rising": ("Red Rising Saga", 1),

@@ -1,4 +1,4 @@
-#!/Users/waldo.vanderhaeghen/Library/Scripts/watcher-env/bin/python3
+#!/usr/bin/env python3
 """Ingest Netflix ViewingActivity.csv + Ratings.csv into entertainment.db."""
 
 import csv

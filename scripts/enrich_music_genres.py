@@ -119,7 +119,7 @@ def fetch_mb_tags(artist_name: str) -> list[str]:
     return []
 
 def main():
-    mb.set_useragent("waldo-taste-map", "1.0", "waldo@vanderlore.de")
+    mb.set_useragent("observatory-taste-map", "1.0", "https://github.com/waldo-van-der-code/observatory")
 
     # Load cache
     cache: dict = {}

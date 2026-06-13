@@ -246,6 +246,78 @@ Save as `static/map-pieces/world-atlas.png` at **2160×1440** (3:2).
 
 ---
 
+## Taste zones
+
+The Brain map partitions taste into 13 zones. Zone definitions live in `config/exemplars.json`
+(exemplar artists per zone) and `config/layout.json` (visual positions on the map).
+
+| Zone ID | Description |
+|---|---|
+| `SOUL_JAZZ` | Soul, R&B, jazz, blues, funk, bossa nova, gospel |
+| `FOLK_SINGER` | Singer-songwriter, folk, acoustic, Celtic, country |
+| `ELECTRONIC_HIP` | Electronic, hip-hop, trap, EDM, trance, techno, drum & bass |
+| `INDIE_WORLD` | Indie rock/pop, alternative, world music, reggae, Latin |
+| `DRAMA` | Drama-first films and TV — character studies, prestige TV |
+| `CRIME_THRILLER` | Crime, thriller, noir, mystery, psychological drama |
+| `ARTHOUSE` | Arthouse and slow cinema, festival films, experimental |
+| `SCI_FI` | Science fiction — books and films |
+| `FANTASY_COMEDY` | Fantasy, comedy, animation, feel-good, absurdist |
+| `ACTION_ADV` | Action, adventure, blockbuster, war |
+| `ANIMATION` | Animation across all audiences — Ghibli to Marvel |
+| `HISTORY` | History, documentary, biography, war drama |
+| `ROCK` | Rock, metal, punk, grunge, classic rock, prog |
+
+To add a zone: add an entry to `config/exemplars.json` with exemplar artists, add its position
+to `config/layout.json`, and add the zone ID string to `config/weights.json`. Re-run
+`python3 scripts/build_brain.py` to rebuild.
+
+---
+
+## Taste exploration tools
+
+Two optional CLI tools let you query the built zone graph interactively:
+
+```bash
+# Load brain_data.json into a local SQLite session
+python3 scripts/load_taste_graph.py
+
+# Query the graph — find zones near a target, view connections
+python3 scripts/explore_taste.py near ARTHOUSE
+python3 scripts/explore_taste.py show SOUL_JAZZ
+```
+
+These are read-only tools — they do not modify the database.
+
+---
+
+## Optional: push recommendations to Supabase
+
+`scripts/push_recs_to_supabase.py` exports local recommendations to a Supabase table.
+This is completely optional — the dashboard works fully without it.
+
+If you want this: create `~/.config/observatory/config.env` with:
+```
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+```
+
+---
+
+## Taste seed (optional)
+
+`scripts/build_profile.py` optionally reads `~/.config/observatory/taste_seed.txt` to
+prime the AI profile with known facts about your taste — titles you know are 5-star,
+genres you reliably skip, etc. This file is never committed.
+
+Create it if the generated profile misses the mark on first run:
+```
+Books — Hard sci-fi: Liu Cixin, Greg Egan
+Films — 5-star: Blade Runner 2049, Whiplash
+Dislikes: slow starts, unresolved endings
+```
+
+---
+
 ## Project structure
 
 ```
@@ -258,12 +330,22 @@ Save as `static/map-pieces/world-atlas.png` at **2160×1440** (3:2).
 │   ├── build_profile.py   # AI taste profile generator
 │   ├── build_dashboard.py # Static HTML generator
 │   ├── build_brain.py     # Taste zone builder
+│   ├── enrich_tiktok.py   # TikTok liked/favorited video enrichment (yt-dlp)
+│   ├── enrich_youtube.py  # YouTube topic tagging from watch history
+│   ├── enrich_music_genres.py  # MusicBrainz genre tagging for top artists
+│   ├── gen_map_prompts.py # Generate Imagen 3 prompts for zone island images
+│   ├── composite_map.py   # Composite zone images into atlas PNG
+│   ├── explore_taste.py   # CLI query interface for the taste graph
+│   ├── load_taste_graph.py # Load brain data into local SQLite for exploration
+│   ├── push_recs_to_supabase.py  # Optional: export recs to Supabase
+│   ├── render_map.py      # Legacy: generate static PDF taste map (pre-Brain)
+│   ├── build_map_data.py  # Legacy: aggregate scores for static map (pre-Brain)
 │   ├── api_search.py      # TMDB + OpenLibrary search
 │   ├── db.py              # SQLite helpers
 │   └── gen_icons.py       # PWA icon generator
 ├── config/
-│   ├── exemplars.json     # Taste zone → exemplar artists/directors
-│   ├── layout.json        # Brain node positions
+│   ├── exemplars.json     # Taste zone → exemplar artists/directors (editable)
+│   ├── layout.json        # Brain node positions (editable)
 │   └── weights.json       # Taste zone weights
 ├── static/
 │   ├── manifest.json      # PWA manifest
