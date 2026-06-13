@@ -2,6 +2,9 @@
 data/raw/
 data/processed/
 data/cache/
+
+# Fixtures are committed (synthetic data only — no personal content)
+# data/fixtures/ is intentionally NOT gitignored
 youtube-watch-history/
 
 # Generated dashboard (contains personal stats)

@@ -17,6 +17,32 @@ No accounts. No cloud. Your data stays on your machine.
 
 ---
 
+## Developer quickstart (no personal data, no API keys)
+
+Clone and run the map with 32 synthetic records — no exports, no API keys needed.
+
+```bash
+git clone https://github.com/waldo-van-der-code/observatory.git
+cd observatory
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+python3 scripts/load_fixtures.py   # populate DB with 32 synthetic records
+python3 scripts/build_brain.py     # build the zone graph
+uvicorn server:app --reload        # start server
+# → open http://localhost:8000/brain.html
+```
+
+This shows all 13 taste zones rendered with well-known film, TV, and book titles
+as zone labels. No real personal data, no Spotify export needed.
+
+> Search (`/` tab) requires a free TMDB key — but the Brain map and zone data work
+> without any API keys. The server prints a clear message if the key is absent.
+
+For a real taste profile from your own data: see **Setup** and **Data sources** below.
+
+---
+
 ## Data sources
 
 Observatory ingests exports you download yourself from the original services:

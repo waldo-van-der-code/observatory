@@ -1,0 +1,18 @@
+{
+  "_note": "Synthetic engagement scores for developer fixture run. Loaded by load_fixtures.py into data/processed/map_data.json.",
+  "nodes": [
+    {"id": "SOUL_JAZZ",       "music_raw": 45.0, "film_raw": 8.0,  "book_raw": 0.0,  "temporal": {}},
+    {"id": "FOLK_SINGER",     "music_raw": 30.0, "film_raw": 0.0,  "book_raw": 0.0,  "temporal": {}},
+    {"id": "ELECTRONIC_HIP",  "music_raw": 80.0, "film_raw": 0.0,  "book_raw": 0.0,  "temporal": {}},
+    {"id": "INDIE_WORLD",     "music_raw": 55.0, "film_raw": 0.0,  "book_raw": 0.0,  "temporal": {}},
+    {"id": "ROCK",            "music_raw": 65.0, "film_raw": 0.0,  "book_raw": 0.0,  "temporal": {}},
+    {"id": "DRAMA",           "music_raw": 0.0,  "film_raw": 25.0, "book_raw": 12.0, "temporal": {}},
+    {"id": "CRIME_THRILLER",  "music_raw": 0.0,  "film_raw": 30.0, "book_raw": 5.0,  "temporal": {}},
+    {"id": "ARTHOUSE",        "music_raw": 8.0,  "film_raw": 12.0, "book_raw": 6.0,  "temporal": {}},
+    {"id": "SCI_FI",          "music_raw": 0.0,  "film_raw": 40.0, "book_raw": 20.0, "temporal": {}},
+    {"id": "FANTASY_COMEDY",  "music_raw": 0.0,  "film_raw": 30.0, "book_raw": 25.0, "temporal": {}},
+    {"id": "ACTION_ADV",      "music_raw": 0.0,  "film_raw": 35.0, "book_raw": 0.0,  "temporal": {}},
+    {"id": "ANIMATION",       "music_raw": 0.0,  "film_raw": 28.0, "book_raw": 0.0,  "temporal": {}},
+    {"id": "HISTORY",         "music_raw": 0.0,  "film_raw": 22.0, "book_raw": 8.0,  "temporal": {}}
+  ]
+}
