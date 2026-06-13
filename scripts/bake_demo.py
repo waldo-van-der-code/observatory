@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Bake fixture brain data into brain.html for the GitHub Pages static demo.
+"""Bake fixture data into static files for the GitHub Pages demo.
 
-Reads data/processed/brain_data.json (built by build_brain.py),
-inlines it as window.BRAIN_ZONES, fixes asset paths for static hosting,
-adds the demo banner, and writes docs/brain.html.
+Produces two files in docs/:
+  docs/index.html  — dashboard.html with path fixes + demo banner
+  docs/brain.html  — brain.html with inline zone data, path fixes + demo banner
 
-build_brain.py also patches brain.html via _patch_brain_html() when the
-placeholder is present. bake_demo.py restores the placeholder in the source
-file after writing docs/brain.html, keeping the repo copy clean.
+build_brain.py patches brain.html in place via _patch_brain_html(). This script
+restores the placeholder after writing docs/brain.html so the repo copy stays clean.
 """
 import json
 import re
@@ -16,13 +15,54 @@ from pathlib import Path
 ROOT       = Path(__file__).parent.parent
 BRAIN_DATA = ROOT / "data" / "processed" / "brain_data.json"
 BRAIN_SRC  = ROOT / "brain.html"
+DASH_SRC   = ROOT / "dashboard.html"
 DOCS_DIR   = ROOT / "docs"
-OUT        = DOCS_DIR / "brain.html"
 
 PLACEHOLDER = "/* BRAIN_DATA_PLACEHOLDER */"
 
+DEMO_BANNER = (
+    '<div id="demo-banner" style="position:fixed;top:0;left:0;right:0;z-index:9999;'
+    'background:rgba(10,14,10,0.95);border-bottom:1px solid rgba(255,255,255,0.1);'
+    'padding:6px 18px;display:flex;align-items:center;justify-content:space-between;'
+    'font-size:0.72rem;color:rgba(255,255,255,0.55);font-family:sans-serif;">'
+    '<span>Demo &mdash; synthetic fixture data &middot; '
+    '<a href="https://github.com/waldo-van-der-code/observatory" '
+    'style="color:rgba(255,255,255,0.75);text-decoration:underline;" target="_blank">'
+    'clone the repo</a> to use your own data</span>'
+    '</div>\n'
+    '<div style="height:32px"></div>\n'  # push content below fixed banner
+)
 
-def main():
+
+def bake_dashboard():
+    """Copy dashboard.html → docs/index.html with static-hosting fixes."""
+    if not DASH_SRC.exists():
+        raise FileNotFoundError(
+            f"{DASH_SRC} not found. Run: python3 scripts/build_dashboard.py"
+        )
+
+    html = DASH_SRC.read_text()
+
+    # Fix /culture/map → brain.html
+    html = html.replace('href="/culture/map"', 'href="brain.html"')
+
+    # Fix hero/section images that come from /culture/img/ — hide gracefully
+    html = re.sub(
+        r'src="/culture/img/([^"]+)"',
+        r'src="/culture/img/\1" onerror="this.style.display=\'none\'"',
+        html,
+    )
+
+    # Add demo banner
+    html = html.replace("<body>", f"<body>\n{DEMO_BANNER}", 1)
+
+    out = DOCS_DIR / "index.html"
+    out.write_text(html)
+    print(f"Wrote {out}  ({len(html):,} bytes)")
+
+
+def bake_brain():
+    """Inline zone data into brain.html → docs/brain.html with static-hosting fixes."""
     if not BRAIN_DATA.exists():
         raise FileNotFoundError(
             f"{BRAIN_DATA} not found. Run: python3 scripts/build_brain.py"
@@ -31,48 +71,36 @@ def main():
     zones = json.loads(BRAIN_DATA.read_text())
     html  = BRAIN_SRC.read_text()
 
-    # ── Inline zone data ──────────────────────────────────────────────────────
+    # Inline zone data
     inline = f"window.BRAIN_ZONES = {json.dumps(zones, separators=(',', ':'))};"
     if PLACEHOLDER in html:
         html = html.replace(PLACEHOLDER, inline)
     else:
-        # Fallback: inject before the main <script> block
-        html = html.replace("<script>\n// ── Dimensions", f"<script>{inline}</script>\n<script>\n// ── Dimensions", 1)
+        html = html.replace(
+            "<script>\n// ── Dimensions",
+            f"<script>{inline}</script>\n<script>\n// ── Dimensions",
+            1,
+        )
 
-    # ── Fix asset paths for static hosting (no leading slash) ─────────────────
+    # Fix asset paths for static hosting (no leading slash)
     html = html.replace('src="/static/', 'src="static/')
     html = html.replace('href="/static/', 'href="static/')
 
-    # ── Atlas image: hide gracefully if absent (it's gitignored) ─────────────
+    # Atlas image: hide gracefully if absent (it's gitignored)
     html = html.replace(
         'src="static/map-pieces/world-atlas.png" alt="Taste Map Atlas"',
         'src="static/map-pieces/world-atlas.png" alt="Taste Map Atlas" '
         'onerror="this.style.opacity=\'0\'"',
     )
 
-    # ── Demo banner ───────────────────────────────────────────────────────────
-    banner = (
-        '<div id="demo-banner" style="position:fixed;top:0;left:0;right:0;z-index:200;'
-        'background:rgba(15,22,12,0.93);border-bottom:1px solid rgba(232,218,184,0.18);'
-        'padding:5px 18px;display:flex;align-items:center;justify-content:space-between;'
-        'font-family:\'Cinzel\',serif;font-size:0.68rem;color:rgba(232,218,184,0.65);'
-        'letter-spacing:0.08em;">'
-        '<span>DEMO &mdash; fixture data &middot; '
-        '<a href="https://github.com/waldo-van-der-code/observatory" '
-        'style="color:rgba(232,218,184,0.85);text-decoration:underline;" target="_blank">'
-        'clone the repo</a> to use your own</span>'
-        '<a href="index.html" style="color:rgba(232,218,184,0.55);text-decoration:none;">'
-        '&larr; back</a></div>\n'
-    )
-    html = html.replace("<body>", f"<body>\n{banner}")
+    # Add demo banner
+    html = html.replace("<body>", f"<body>\n{DEMO_BANNER}", 1)
 
-    DOCS_DIR.mkdir(exist_ok=True)
-    OUT.write_text(html)
-    print(f"Wrote {OUT}  ({len(zones)} zones, {len(inline):,} chars inline)")
+    out = DOCS_DIR / "brain.html"
+    out.write_text(html)
+    print(f"Wrote {out}  ({len(zones)} zones, {len(inline):,} chars inline)")
 
-    # ── Restore placeholder in source brain.html ──────────────────────────────
-    # build_brain.py replaces the placeholder with inline data in the source file.
-    # We always restore it so the repo copy stays clean (no personal data baked in).
+    # Restore placeholder in source brain.html
     src = BRAIN_SRC.read_text()
     restored = re.sub(
         r'<script>window\.BRAIN_ZONES = \[.*?\];</script>',
@@ -83,6 +111,12 @@ def main():
     if restored != src:
         BRAIN_SRC.write_text(restored)
         print(f"Restored placeholder in {BRAIN_SRC.name}")
+
+
+def main():
+    DOCS_DIR.mkdir(exist_ok=True)
+    bake_dashboard()
+    bake_brain()
 
 
 if __name__ == "__main__":

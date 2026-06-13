@@ -148,6 +148,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             ambient_reason   TEXT,
             ambient_source   TEXT,
             topics           TEXT,
+            yt_categories    TEXT,
             enrichment_model TEXT,
             prompt_version   TEXT,
             enriched_at      TEXT,
