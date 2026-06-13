@@ -46,12 +46,8 @@ def bake_dashboard():
     # Fix /culture/map → brain.html
     html = html.replace('href="/culture/map"', 'href="brain.html"')
 
-    # Fix hero/section images that come from /culture/img/ — hide gracefully
-    html = re.sub(
-        r'src="/culture/img/([^"]+)"',
-        r'src="/culture/img/\1" onerror="this.style.display=\'none\'"',
-        html,
-    )
+    # Fix /culture/img/ absolute paths → relative (GitHub Pages serves from /observatory/)
+    html = html.replace('src="/culture/img/', 'src="culture/img/')
 
     # Add demo banner
     html = html.replace("<body>", f"<body>\n{DEMO_BANNER}", 1)
@@ -82,16 +78,11 @@ def bake_brain():
             1,
         )
 
-    # Fix asset paths for static hosting (no leading slash)
+    # Fix asset paths for static hosting (no leading slash — GitHub Pages serves from /observatory/)
     html = html.replace('src="/static/', 'src="static/')
     html = html.replace('href="/static/', 'href="static/')
-
-    # Atlas image: hide gracefully if absent (it's gitignored)
-    html = html.replace(
-        'src="static/map-pieces/world-atlas.png" alt="Taste Map Atlas"',
-        'src="static/map-pieces/world-atlas.png" alt="Taste Map Atlas" '
-        'onerror="this.style.opacity=\'0\'"',
-    )
+    # Also fix JS template literals that reference /static/ (zone island images)
+    html = html.replace('`/static/map-pieces/', '`static/map-pieces/')
 
     # Add demo banner
     html = html.replace("<body>", f"<body>\n{DEMO_BANNER}", 1)

@@ -21,9 +21,10 @@ python3 scripts/build_dashboard.py
 python3 scripts/bake_demo.py
 
 # 5. Copy static assets
-mkdir -p docs/static
+mkdir -p docs/static/map-pieces
 cp static/manifest.json docs/static/ 2>/dev/null || true
 cp static/icon-*.png    docs/static/ 2>/dev/null || true
+cp static/map-pieces/*.png docs/static/map-pieces/ 2>/dev/null || true
 
 # 6. Copy demo search results
 cp data/fixtures/demo_results.json docs/demo_results.json

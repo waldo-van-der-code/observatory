@@ -320,7 +320,7 @@ function preloadImages(zones) {
   zones.forEach(zone => {
     const img = new Image();
     img.onload = () => { loadedImages[zone.id] = img; renderTerrain(zones); };
-    img.src = `/static/map-pieces/${zone.id}.png`;
+    img.src = `static/map-pieces/${zone.id}.png`;
   });
 }
 
