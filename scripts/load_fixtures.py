@@ -112,6 +112,30 @@ def load(reset: bool = False) -> None:
         )
         inserted_plays += 1
 
+    tp = data.get("taste_profile")
+    if tp:
+        existing = conn.execute("SELECT id FROM taste_profile ORDER BY id DESC LIMIT 1").fetchone()
+        if not existing:
+            conn.execute(
+                "INSERT INTO taste_profile "
+                "(generated_at, genre_fingerprint, film_genre_fingerprint, top_themes, "
+                "rating_calibration, taste_clusters, dislikes_pattern, top_authors, top_directors, raw_response) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (
+                    tp.get("generated_at"),
+                    json.dumps(tp.get("genre_fingerprint", {})),
+                    json.dumps(tp.get("film_genre_fingerprint", {})),
+                    json.dumps(tp.get("top_themes", [])),
+                    json.dumps(tp.get("rating_calibration", {})),
+                    json.dumps(tp.get("taste_clusters", [])),
+                    json.dumps(tp.get("dislikes_pattern", [])),
+                    json.dumps(tp.get("top_authors", [])),
+                    json.dumps(tp.get("top_directors", [])),
+                    json.dumps(tp.get("raw_response", {})),
+                ),
+            )
+            print("Loaded taste_profile")
+
     conn.commit()
     conn.close()
 

@@ -226,5 +226,73 @@
     {"ended_at": "2024-05-18T20:30:00", "artist": "Django Reinhardt",  "track": "I'll See You in My Dreams","album": "The Best of Django Reinhardt",  "ms_played": 174000},
     {"ended_at": "2024-06-03T09:15:00", "artist": "Nick Drake",        "track": "Hazey Jane II",            "album": "Bryter Layter",                 "ms_played": 217000},
     {"ended_at": "2024-06-03T09:40:00", "artist": "Massive Attack",    "track": "Protection",               "album": "Protection",                    "ms_played": 264000}
-  ]
+  ],
+  "taste_profile": {
+    "generated_at": "2024-06-03T10:00:00",
+    "genre_fingerprint": {
+      "Science Fiction": 22,
+      "Literary Fiction": 18,
+      "Crime & Thriller": 14,
+      "Fantasy": 12,
+      "Drama": 10,
+      "History & Biography": 8,
+      "Comics & Graphic Novels": 8,
+      "Horror": 4,
+      "Philosophy": 4
+    },
+    "film_genre_fingerprint": {
+      "Drama": 28,
+      "Science Fiction": 22,
+      "Crime & Noir": 18,
+      "Arthouse": 14,
+      "Action": 8,
+      "Animation": 6,
+      "Documentary": 4
+    },
+    "top_themes": [
+      "Identity and transformation under pressure",
+      "Moral ambiguity in systems of power",
+      "Memory, loss, and the weight of the past",
+      "Survival and humanity at civilisational scale",
+      "The outsider who sees what insiders cannot"
+    ],
+    "rating_calibration": {
+      "mean": 4.1,
+      "std": 0.7,
+      "notes": "Generous rater — 4 stars is genuine enthusiasm, 5 stars is reserved for transformative works. Rarely rates below 3."
+    },
+    "taste_clusters": [
+      {
+        "name": "Hard SF & Speculative Fiction",
+        "description": "Deep investment in science fiction that takes ideas seriously — especially first-contact, deep time, and civilisational stakes. Prefers biological/sociological SF over tech SF.",
+        "items": ["Hyperion", "Children of Time", "Arrival", "Blade Runner 2049", "Dark", "Project Hail Mary", "Severance"]
+      },
+      {
+        "name": "Arthouse & Slow Cinema",
+        "description": "Patient, visually precise filmmaking where mood and implication do the work of dialogue. Tarkovsky, Bergman, and their successors — plus contemporary directors who inherited that tradition.",
+        "items": ["Stalker", "Persona", "Mulholland Drive", "Parasite", "The Master and Margarita"]
+      },
+      {
+        "name": "Literary Crime & Moral Complexity",
+        "description": "Crime as a vehicle for character study and institutional critique rather than plot mechanics. Breaking Bad, The Wire, No Country for Old Men — the kind of work where the criminal is a mirror.",
+        "items": ["The Wire", "Better Call Saul", "No Country for Old Men", "True Detective", "Slow Horses"]
+      },
+      {
+        "name": "Soul, Jazz & Melancholic Atmospherics",
+        "description": "Music that sits still and breathes. Nina Simone, Tom Waits, Portishead, Boards of Canada — emotional precision over energy, melancholy as aesthetic choice.",
+        "items": ["Nina Simone", "Tom Waits", "Portishead", "Boards of Canada", "Nick Drake"]
+      }
+    ],
+    "dislikes_pattern": [
+      "Formulaic genre fiction without thematic ambition (airport thrillers, most superhero films after 2015)",
+      "Comedy that relies on embarrassment or cruelty rather than wit",
+      "Exposition-heavy storytelling that explains what it should show",
+      "High-concept SF that uses ideas as decoration rather than investigation"
+    ],
+    "top_authors": ["Terry Pratchett", "Ursula K. Le Guin", "Cormac McCarthy", "Patrick Rothfuss", "Adrian Tchaikovsky"],
+    "top_directors": ["Stanley Kubrick", "Andrei Tarkovsky", "Denis Villeneuve", "Bong Joon-ho", "David Lynch"],
+    "raw_response": {
+      "profile_summary": "Your taste converges on a single obsession: serious ideas rendered in beautiful form. Whether it's hard SF that takes evolutionary biology as seriously as Tchaikovsky does, slow cinema that trusts the audience to sit with unease, or jazz that turns sadness into architecture — you want work that believes in itself. You rate 5 stars rarely and precisely. The canon you're building is characterised by moral complexity, patient pacing, and a preference for ambiguity over resolution. You consume across every medium but with consistent depth rather than breadth — finishing series, re-reading novels, returning to albums. The recurring motif across your highest-rated work is the outsider who sees clearly because they're not invested in the system's self-image."
+    }
+  }
 }

@@ -929,9 +929,9 @@ _BRAIN_BODY_INJECT = """<div id="demo-banner">
   <a href="brain.html" class="active">Taste Map</a>
 </div>
 <script>
-  const h3=document.getElementById('cHam3'),d3=document.getElementById('cDrawer3'),c3=document.getElementById('cDrawerClose3');
-  h3?.addEventListener('click',()=>d3?.classList.add('open'));
-  c3?.addEventListener('click',()=>d3?.classList.remove('open'));
+  const h3=document.getElementById('cHam3'),dr3=document.getElementById('cDrawer3'),c3=document.getElementById('cDrawerClose3');
+  h3?.addEventListener('click',()=>dr3?.classList.add('open'));
+  c3?.addEventListener('click',()=>dr3?.classList.remove('open'));
 </script>
 """
 
