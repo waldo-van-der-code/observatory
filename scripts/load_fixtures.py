@@ -97,9 +97,10 @@ def load(reset: bool = False) -> None:
         conn.execute(
             """INSERT INTO user_interactions
                (media_id, interaction, rating, shelf, date_completed, source)
-               VALUES (?, ?, ?, ?, ?, 'fixture')""",
+               VALUES (?, ?, ?, ?, ?, ?)""",
             (ix["media_id"], ix["interaction"], ix["rating"],
-             ix.get("shelf"), ix.get("date_completed")),
+             ix.get("shelf"), ix.get("date_completed"),
+             ix.get("source", "fixture")),
         )
         inserted_interactions += 1
 
@@ -136,8 +137,104 @@ def load(reset: bool = False) -> None:
             )
             print("Loaded taste_profile")
 
+    # ── TikTok ────────────────────────────────────────────────────────────────
+    inserted_tiktok_vids = 0
+    for v in data.get("tiktok_videos", []):
+        if conn.execute("SELECT 1 FROM tiktok_videos WHERE video_id=?", (v["video_id"],)).fetchone():
+            continue
+        conn.execute(
+            "INSERT INTO tiktok_videos (video_id, url, title, description, hashtags, categories, "
+            "enrichment_status, enrichment_attempts) VALUES (?,?,?,?,?,?,?,?)",
+            (v["video_id"], v["url"], v.get("title"), v.get("description"),
+             v.get("hashtags"), v.get("categories"),
+             v.get("enrichment_status"), v.get("enrichment_attempts", 0)),
+        )
+        inserted_tiktok_vids += 1
+
+    inserted_tiktok_ints = 0
+    for t in data.get("tiktok_interactions", []):
+        if conn.execute("SELECT 1 FROM tiktok_interactions WHERE source_key=?", (t["source_key"],)).fetchone():
+            continue
+        conn.execute(
+            "INSERT INTO tiktok_interactions (source_key, video_id, raw_url, interaction_type, "
+            "rating, interaction_date, source_list, source_index) VALUES (?,?,?,?,?,?,?,?)",
+            (t["source_key"], t["video_id"], t["raw_url"], t["interaction_type"],
+             t["rating"], t["interaction_date"], t.get("source_list"), t.get("source_index")),
+        )
+        inserted_tiktok_ints += 1
+
+    # ── YouTube ───────────────────────────────────────────────────────────────
+    inserted_yt_vids = 0
+    for v in data.get("youtube_videos", []):
+        if conn.execute("SELECT 1 FROM youtube_videos WHERE video_id=?", (v["video_id"],)).fetchone():
+            continue
+        conn.execute(
+            "INSERT INTO youtube_videos (video_id, title, channel, duration_sec, url) VALUES (?,?,?,?,?)",
+            (v["video_id"], v.get("title"), v.get("channel"), v.get("duration_sec"), v.get("url")),
+        )
+        inserted_yt_vids += 1
+
+    inserted_yt_enrichment = 0
+    for e in data.get("youtube_video_enrichment", []):
+        if conn.execute("SELECT 1 FROM youtube_video_enrichment WHERE video_id=?", (e["video_id"],)).fetchone():
+            continue
+        conn.execute(
+            "INSERT INTO youtube_video_enrichment (video_id, ambient_class, ambient_reason, "
+            "ambient_source, topics, yt_categories, enrichment_model, prompt_version, enriched_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (e["video_id"], e.get("ambient_class"), e.get("ambient_reason"),
+             e.get("ambient_source"), e.get("topics"), e.get("yt_categories"),
+             e.get("enrichment_model"), e.get("prompt_version"), e.get("enriched_at")),
+        )
+        inserted_yt_enrichment += 1
+
+    inserted_yt_events = 0
+    for ev in data.get("youtube_watch_events", []):
+        if conn.execute("SELECT 1 FROM youtube_watch_events WHERE event_id=?", (ev["event_id"],)).fetchone():
+            continue
+        conn.execute(
+            "INSERT INTO youtube_watch_events (event_id, video_id, watched_at, source, source_index) "
+            "VALUES (?,?,?,?,?)",
+            (ev["event_id"], ev["video_id"], ev["watched_at"],
+             ev.get("source"), ev.get("source_index")),
+        )
+        inserted_yt_events += 1
+
+    inserted_yt_chapters = 0
+    for c in data.get("youtube_chapters", []):
+        if conn.execute("SELECT 1 FROM youtube_chapters WHERE chapter_id=?", (c["chapter_id"],)).fetchone():
+            continue
+        conn.execute(
+            "INSERT INTO youtube_chapters (chapter_id, start_date, end_date, name, summary) "
+            "VALUES (?,?,?,?,?)",
+            (c["chapter_id"], c.get("start_date"), c.get("end_date"),
+             c.get("name"), c.get("summary")),
+        )
+        inserted_yt_chapters += 1
+
+    # ── Recommendations ───────────────────────────────────────────────────────
+    inserted_recs = 0
+    if not conn.execute("SELECT 1 FROM recommendations LIMIT 1").fetchone():
+        for r in data.get("recommendations", []):
+            conn.execute(
+                "INSERT INTO recommendations (generated_at, media_type, title, author_or_director, "
+                "reason, potential_issue, confidence, status) VALUES (?,?,?,?,?,?,?,?)",
+                (r.get("generated_at"), r["media_type"], r["title"], r.get("author_or_director"),
+                 r.get("reason"), r.get("potential_issue"), r.get("confidence", 0.7),
+                 r.get("status", "pending")),
+            )
+            inserted_recs += 1
+
     conn.commit()
     conn.close()
+
+    if inserted_tiktok_vids:
+        print(f"Loaded {inserted_tiktok_vids} TikTok videos, {inserted_tiktok_ints} interactions")
+    if inserted_yt_vids:
+        print(f"Loaded {inserted_yt_vids} YouTube videos, {inserted_yt_events} watch events, "
+              f"{inserted_yt_enrichment} enrichment, {inserted_yt_chapters} chapters")
+    if inserted_recs:
+        print(f"Loaded {inserted_recs} recommendations")
 
     MAP_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy(FIXTURE_MAP, MAP_DATA_PATH)
