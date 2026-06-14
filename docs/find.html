@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Find & Add — Culture ✦</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="apple-touch-icon" sizes="180x180" href="static/icon-180.png">
+  <link rel="manifest" href="static/manifest.json">
+  <style>
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+    :root {
+      --cream:#f5f0e8; --cream-dark:#ede6d8; --paper:#faf7f2;
+      --ink:#1a1612; --ink-mid:#3d3530; --ink-dim:#7a6e64;
+      --border:rgba(26,22,18,.12); --rust:#c94c1a; --cobalt:#1a4fa0;
+      --gold:#d4920a; --teal:#0d7e6b;
+    }
+    body { font-family:'Inter',sans-serif; background:var(--cream); color:var(--ink); min-height:100vh; }
+
+    /* ── Demo banner ── */
+    #demo-banner {
+      position:fixed; top:0; left:0; right:0; z-index:9999;
+      background:rgba(26,79,160,.97); border-bottom:2px solid var(--gold);
+      padding:5px 18px; display:flex; align-items:center; justify-content:space-between;
+      font-size:.7rem; color:rgba(255,255,255,.7); font-family:'Inter',sans-serif;
+    }
+    #demo-banner a { color:rgba(255,255,255,.9); text-decoration:underline; }
+    .demo-push { height:30px; }
+
+    /* ── Header ── */
+    .c-header {
+      display:flex; align-items:center; gap:1rem; padding:0 1.5rem;
+      background:var(--cobalt); border-bottom:4px solid var(--gold);
+      min-height:64px; position:sticky; top:30px; z-index:100;
+    }
+    .c-header-logo { font-family:'Lora',serif; font-size:1.15rem; font-weight:700; color:#fff; text-decoration:none; letter-spacing:.04em; flex:1; }
+    .c-header-logo span { color:var(--gold); }
+    .c-nav { display:flex; gap:.25rem; }
+    .c-nav a {
+      padding:.4rem .9rem; border:2px solid rgba(255,255,255,.25); border-radius:2px;
+      font-size:.72rem; font-weight:700; color:rgba(255,255,255,.65); text-decoration:none;
+      letter-spacing:.07em; text-transform:uppercase; transition:all .15s;
+    }
+    .c-nav a:hover { color:#fff; border-color:rgba(255,255,255,.6); }
+    .c-nav a.active { background:var(--gold); color:var(--ink); border-color:var(--gold); }
+    .c-hamburger {
+      display:none; background:transparent; border:2px solid rgba(255,255,255,.4);
+      border-radius:2px; color:#fff; padding:.5rem .75rem; cursor:pointer; font-size:1.2rem;
+    }
+    .c-drawer {
+      display:none; position:fixed; inset:0; background:var(--cobalt); z-index:300; padding:1.5rem;
+    }
+    .c-drawer.open { display:block; }
+    .c-drawer-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:2rem; }
+    .c-drawer-logo { font-family:'Lora',serif; font-size:1.15rem; font-weight:700; color:#fff; letter-spacing:.04em; }
+    .c-drawer-logo span { color:var(--gold); }
+    .c-drawer-close { background:transparent; border:2px solid rgba(255,255,255,.4); border-radius:2px; color:#fff; padding:.5rem .75rem; cursor:pointer; font-size:1rem; }
+    .c-drawer a { display:block; padding:1.1rem 0; border-bottom:1px solid rgba(255,255,255,.12); font-size:.95rem; font-weight:700; color:rgba(255,255,255,.75); text-decoration:none; letter-spacing:.07em; text-transform:uppercase; }
+    .c-drawer a:last-child { border-bottom:none; }
+    .c-drawer a.active { color:var(--gold); }
+    @media (max-width:700px) { .c-nav { display:none; } .c-hamburger { display:flex; align-items:center; justify-content:center; } }
+  </style>
+</head>
+<body>
+
+<div id="demo-banner">
+  <span>Demo &mdash; synthetic fixture data &middot;
+    <a href="https://github.com/waldo-van-der-code/observatory" target="_blank">clone the repo</a> to use your own data</span>
+</div>
+<div class="demo-push"></div>
+
+<header class="c-header">
+  <a href="index.html" class="c-header-logo">Culture <span>✦</span></a>
+  <nav class="c-nav">
+    <a href="ask-claude.html" class="">Ask Claude</a>
+        <a href="picks.html" class="">Recommendations</a>
+        <a href="analytics.html" class="">Analytics</a>
+        <a href="find.html" class="active">Find & Add</a>
+        <a href="chapters.html" class="">Life Chapters</a>
+        <a href="brain.html" class="">Taste Map</a>
+  </nav>
+  <button class="c-hamburger" id="cHam" aria-label="Open menu">&#9776;</button>
+</header>
+<div class="c-drawer" id="cDrawer">
+  <div class="c-drawer-head">
+    <span class="c-drawer-logo">Culture <span>✦</span></span>
+    <button class="c-drawer-close" id="cDrawerClose" aria-label="Close">&#10005;</button>
+  </div>
+  <a href="index.html">Dashboard</a>
+  <a href="ask-claude.html" class="">Ask Claude</a>
+      <a href="picks.html" class="">Recommendations</a>
+      <a href="analytics.html" class="">Analytics</a>
+      <a href="find.html" class="active">Find & Add</a>
+      <a href="chapters.html" class="">Life Chapters</a>
+      <a href="brain.html" class="">Taste Map</a>
+</div>
+<script>
+  const ham=document.getElementById('cHam'),drawer=document.getElementById('cDrawer'),close=document.getElementById('cDrawerClose');
+  ham?.addEventListener('click',()=>drawer?.classList.add('open'));
+  close?.addEventListener('click',()=>drawer?.classList.remove('open'));
+</script>
+
+
+<style>
+  .demo-section { max-width:820px; margin:0 auto; padding:2rem 1.5rem 4rem; }
+  .demo-section-head { margin-bottom:2rem; }
+  .demo-section-head h1 { font-family:'Lora',serif; font-size:1.75rem; font-weight:700; color:var(--ink); margin-bottom:.35rem; }
+  .demo-section-head p { font-size:.875rem; color:var(--ink-dim); line-height:1.6; max-width:520px; }
+  .demo-live-note { display:inline-flex; align-items:center; gap:.5rem; margin-top:1rem; padding:.45rem .85rem; background:rgba(201,76,26,.08); border:1.5px solid rgba(201,76,26,.22); border-radius:3px; font-size:.72rem; color:var(--rust); }
+  .demo-live-note a { color:var(--rust); font-weight:700; }
+  .demo-preview { background:var(--paper); border:2px solid var(--ink); border-radius:4px; box-shadow:4px 4px 0 var(--ink); overflow:hidden; }
+  .demo-preview-label { font-size:.6rem; font-weight:700; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-dim); background:var(--cream-dark); padding:.35rem .75rem; border-bottom:1.5px solid var(--ink); }
+</style>
+<style>
+  .find-bar { display:flex; gap:.5rem; padding:1rem 1.25rem; background:var(--cream-dark); border-bottom:1.5px solid rgba(26,22,18,.1); }
+  .find-input-mock { flex:1; background:#fff; border:1.5px solid rgba(26,22,18,.2); border-radius:3px; padding:.55rem .85rem; font-size:.82rem; color:var(--ink); pointer-events:none; }
+  .find-type-mock { background:#fff; border:1.5px solid rgba(26,22,18,.2); border-radius:3px; padding:.55rem .65rem; font-size:.8rem; color:var(--ink-dim); pointer-events:none; }
+  .find-btn-mock { background:var(--cobalt); color:#fff; border:none; border-radius:3px; padding:.55rem 1.1rem; font-size:.75rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; cursor:not-allowed; opacity:.55; }
+  .find-results { padding:.75rem 1.25rem; display:flex; flex-direction:column; gap:.65rem; }
+  .find-result { display:flex; gap:.85rem; padding:.65rem .75rem; background:#fff; border:1.5px solid rgba(26,22,18,.1); border-radius:4px; align-items:center; }
+  .find-result-thumb { width:40px; height:58px; background:linear-gradient(135deg,var(--ink),#5a4a3a); border-radius:3px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:1.2rem; color:rgba(255,255,255,.5); }
+  .find-result-info { flex:1; }
+  .find-result-title { font-family:'Lora',serif; font-size:.9rem; font-weight:700; color:var(--ink); }
+  .find-result-sub { font-size:.72rem; color:var(--ink-dim); }
+  .find-result-year { font-size:.65rem; background:rgba(26,22,18,.07); color:var(--ink-dim); padding:1px 6px; border-radius:2px; display:inline-block; margin-top:.2rem; }
+  .find-add-mock { font-size:.7rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--cobalt); border:1.5px solid var(--cobalt); border-radius:3px; padding:.35rem .7rem; cursor:not-allowed; opacity:.55; white-space:nowrap; }
+  .find-note { font-size:.68rem; color:var(--ink-dim); text-align:center; padding:.5rem .75rem; }
+</style>
+<div class="demo-section">
+  <div class="demo-section-head">
+    <h1>Find &amp; Add</h1>
+    <p>Search TMDB, OpenLibrary, and MusicBrainz to add films, books, albums, and series to your watchlist and reading list.</p>
+    <span class="demo-live-note">&#128274; Requires a live server. <a href="https://github.com/waldo-van-der-code/observatory" target="_blank">Clone the repo</a> to search and add your own media.</span>
+  </div>
+  <div class="demo-preview">
+    <div class="demo-preview-label">Preview — mock search for "Foundation"</div>
+    <div class="find-bar">
+      <input class="find-input-mock" value="Foundation" readonly/>
+      <select class="find-type-mock"><option>Book</option></select>
+      <button class="find-btn-mock">Search</button>
+    </div>
+    <div class="find-results">
+      <div class="find-result">
+        <div class="find-result-thumb">&#128218;</div>
+        <div class="find-result-info">
+          <div class="find-result-title">Foundation</div>
+          <div class="find-result-sub">Isaac Asimov &middot; Science Fiction</div>
+          <span class="find-result-year">1951</span>
+        </div>
+        <button class="find-add-mock">+ Add</button>
+      </div>
+      <div class="find-result">
+        <div class="find-result-thumb">&#128218;</div>
+        <div class="find-result-info">
+          <div class="find-result-title">Foundation and Empire</div>
+          <div class="find-result-sub">Isaac Asimov &middot; Science Fiction</div>
+          <span class="find-result-year">1952</span>
+        </div>
+        <button class="find-add-mock">+ Add</button>
+      </div>
+      <div class="find-result">
+        <div class="find-result-thumb">&#128218;</div>
+        <div class="find-result-info">
+          <div class="find-result-title">Second Foundation</div>
+          <div class="find-result-sub">Isaac Asimov &middot; Science Fiction</div>
+          <span class="find-result-year">1953</span>
+        </div>
+        <button class="find-add-mock">+ Add</button>
+      </div>
+    </div>
+    <div class="find-note">Buttons disabled in demo. Clone the repo to search TMDB &amp; OpenLibrary with your own API keys.</div>
+  </div>
+</div>
+</body>
+</html>

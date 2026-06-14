@@ -68,8 +68,8 @@ def load(reset: bool = False) -> None:
 
         conn.execute(
             """INSERT INTO media_items
-               (id, media_type, title, author, director, year, genres, source, source_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (id, media_type, title, author, director, year, genres, series_name, series_pos, source, source_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 item["id"],
                 item["media_type"],
@@ -78,6 +78,8 @@ def load(reset: bool = False) -> None:
                 item.get("director"),
                 item.get("year"),
                 json.dumps(item.get("genres", [])),
+                item.get("series_name"),
+                item.get("series_pos"),
                 item["source"],
                 item["source_id"],
             ),
@@ -101,6 +103,15 @@ def load(reset: bool = False) -> None:
         )
         inserted_interactions += 1
 
+    inserted_plays = 0
+    for play in data.get("spotify_plays", []):
+        conn.execute(
+            "INSERT INTO spotify_plays (ended_at, artist, track, ms_played, album) VALUES (?,?,?,?,?)",
+            (play.get("ended_at"), play.get("artist"), play.get("track"),
+             play.get("ms_played"), play.get("album")),
+        )
+        inserted_plays += 1
+
     conn.commit()
     conn.close()
 
@@ -110,6 +121,8 @@ def load(reset: bool = False) -> None:
     total_items = inserted_items + skipped_items
     print(f"Loaded {inserted_items} items ({skipped_items} already present, {total_items} total)")
     print(f"Loaded {inserted_interactions} interactions")
+    if inserted_plays:
+        print(f"Loaded {inserted_plays} Spotify plays")
     print(f"Copied fixture map data → {MAP_DATA_PATH}")
     print()
     print("Next steps:")
