@@ -3,7 +3,7 @@
     "configFile": "/Users/waldo.vanderhaeghen/Documents/AI-projects-personal/Fun!/entertainment/playwright.config.ts",
     "rootDir": "/Users/waldo.vanderhaeghen/Documents/AI-projects-personal/Fun!/entertainment/evals/browser",
     "forbidOnly": false,
-    "fullyParallel": true,
+    "fullyParallel": false,
     "globalSetup": null,
     "globalTeardown": null,
     "globalTimeout": 0,
@@ -22,8 +22,8 @@
         "metadata": {
           "actualWorkers": 1
         },
-        "id": "chromium",
-        "name": "chromium",
+        "id": "",
+        "name": "",
         "testDir": "/Users/waldo.vanderhaeghen/Documents/AI-projects-personal/Fun!/entertainment/evals/browser",
         "testIgnore": [],
         "testMatch": [
@@ -55,11 +55,7 @@
     "updateSourceMethod": "patch",
     "version": "1.60.0",
     "workers": 4,
-    "webServer": {
-      "command": "./run.sh --serve",
-      "url": "http://localhost:8000",
-      "reuseExistingServer": true
-    }
+    "webServer": null
   },
   "suites": [
     {
@@ -69,7 +65,7 @@
       "line": 0,
       "specs": [
         {
-          "title": "homepage loads and has a title",
+          "title": "recommendations: no duplicate titles",
           "ok": true,
           "tags": [],
           "tests": [
@@ -77,19 +73,19 @@
               "timeout": 30000,
               "annotations": [],
               "expectedStatus": "passed",
-              "projectId": "chromium",
-              "projectName": "chromium",
+              "projectId": "",
+              "projectName": "",
               "results": [
                 {
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 468,
+                  "duration": 701,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-06-04T00:00:36.818Z",
+                  "startTime": "2026-06-13T23:35:48.012Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -97,9 +93,43 @@
               "status": "expected"
             }
           ],
-          "id": "4219922fea2e2bd3c691-8bf9eb82e9b8bb3c9a36",
+          "id": "4219922fea2e2bd3c691-7aba6537685148148b20",
           "file": "smoke.spec.ts",
-          "line": 4,
+          "line": 215,
+          "column": 5
+        },
+        {
+          "title": "to-read queue: no duplicate titles",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 137,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-06-13T23:35:49.132Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4219922fea2e2bd3c691-d4499be878e997c0bb21",
+          "file": "smoke.spec.ts",
+          "line": 229,
           "column": 5
         }
       ]
@@ -107,9 +137,9 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-06-04T00:00:35.753Z",
-    "duration": 1863.2350000000001,
-    "expected": 1,
+    "startTime": "2026-06-13T23:35:47.259Z",
+    "duration": 2065.893,
+    "expected": 2,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

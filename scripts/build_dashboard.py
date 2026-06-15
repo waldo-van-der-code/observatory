@@ -114,7 +114,14 @@ def render(conn) -> str:
             "SELECT year FROM media_items WHERE lower(title)=lower(?) LIMIT 1", (r["title"],)
         ).fetchone()
         r["year"] = row["year"] if row and row["year"] else None
-    recs = recs_raw
+    # Deduplicate by title (sorted DESC by confidence already — keep first hit)
+    _seen_rec_titles: set[str] = set()
+    recs = []
+    for r in recs_raw:
+        _key = r["title"].lower()
+        if _key not in _seen_rec_titles:
+            _seen_rec_titles.add(_key)
+            recs.append(r)
 
     series_data = conn.execute("""
         SELECT series_name, count(*) read_count, min(series_pos) first_pos, max(series_pos) last_pos,
@@ -133,12 +140,18 @@ def render(conn) -> str:
         ORDER BY avg_r DESC, n DESC LIMIT 8
     """).fetchall()
 
-    to_read = conn.execute("""
+    to_read_raw = conn.execute("""
         SELECT m.title, m.author, m.series_name, m.series_pos, ui.date_added
         FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
         WHERE ui.shelf='to-read'
         ORDER BY m.series_name NULLS LAST, m.series_pos NULLS LAST, m.title
     """).fetchall()
+    _seen_to_read: set[str] = set()
+    to_read = []
+    for _b in to_read_raw:
+        if _b["title"].lower() not in _seen_to_read:
+            _seen_to_read.add(_b["title"].lower())
+            to_read.append(_b)
 
     generated = profile_row["generated_at"][:10] if profile_row else "—"
     profile_summary = ""
@@ -1326,7 +1339,7 @@ def render(conn) -> str:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Entertainment Dashboard</title>
+<title>My ears, my eyes and me</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎷</text></svg>">
 <style>
   :root {{
@@ -1676,7 +1689,7 @@ def render(conn) -> str:
 
 <div style="margin-bottom:24px">
   <img src="/culture/img/hero-overview.jpg" style="width:100%;height:260px;object-fit:cover;border-radius:4px;margin-bottom:20px;border:1px solid var(--border-dark)" alt="">
-  <h1>Entertainment Dashboard</h1>
+  <h1>My ears, my eyes and me</h1>
   <div class="dim">Profile generated {generated} · {total_consumed} items consumed · {len(book_ratings)} ratings</div>
 </div>
 

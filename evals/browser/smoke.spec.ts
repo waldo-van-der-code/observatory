@@ -212,6 +212,38 @@ test("recommendations: podcasts ≥ 20", async ({ page }) => {
   ).toBeGreaterThanOrEqual(20);
 });
 
+test("recommendations: no duplicate titles", async ({ page }) => {
+  await page.goto("/");
+  const titles = await page.locator(".rec-card strong").evaluateAll(
+    (els) => els.map((el) => el.textContent?.trim().toLowerCase() ?? "")
+  );
+  const seen = new Set<string>();
+  const dupes: string[] = [];
+  for (const t of titles) {
+    if (seen.has(t)) dupes.push(t);
+    seen.add(t);
+  }
+  expect(dupes, `Duplicate rec titles: ${dupes.join(", ")}`).toHaveLength(0);
+});
+
+test("to-read queue: no duplicate titles", async ({ page }) => {
+  await page.goto("/");
+  const rows = page.locator("#sec-books table tr td:first-child");
+  const count = await rows.count();
+  const titles: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const text = await rows.nth(i).textContent();
+    titles.push(text?.trim().toLowerCase() ?? "");
+  }
+  const seen = new Set<string>();
+  const dupes: string[] = [];
+  for (const t of titles.filter(Boolean)) {
+    if (seen.has(t)) dupes.push(t);
+    seen.add(t);
+  }
+  expect(dupes, `Duplicate to-read titles: ${dupes.join(", ")}`).toHaveLength(0);
+});
+
 // ── brain.html ────────────────────────────────────────────────────────────
 
 test("brain page loads with correct title and map container", async ({
