@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Ask the Oracle</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --cream: #f5f0e8; --cream-dark: #ede6d8; --paper: #faf7f2;
+      --ink: #1a1612; --ink-mid: #3d3530; --ink-dim: #4f4640;
+      --border: rgba(26,22,18,.14); --rust: #a83a0e; --cobalt: #1a4fa0;
+      --gold: #d4920a;
+    }
+    body { font-family: 'Inter', sans-serif; background: var(--cream); color: var(--ink); min-height: 100vh; display: flex; flex-direction: column; }
+
+    /* Header */
+    .header {
+      display: flex; align-items: center; gap: 1rem; padding: 0 1.5rem;
+      background: var(--cobalt); border-bottom: 4px solid var(--gold);
+      min-height: 60px; position: sticky; top: 0; z-index: 100;
+    }
+    .logo { font-family: 'Lora', serif; font-size: 1.1rem; font-weight: 600; color: #fff; text-decoration: none; letter-spacing: .04em; flex: 1; }
+    .logo span { color: var(--gold); }
+    .nav a { padding: .4rem .85rem; border: 2px solid rgba(255,255,255,.2); border-radius: 2px; font-size: .72rem; font-weight: 700; color: rgba(255,255,255,.65); text-decoration: none; letter-spacing: .06em; text-transform: uppercase; transition: all .15s; margin-left: .2rem; }
+    .nav a:hover { color: #fff; border-color: rgba(255,255,255,.5); }
+    .nav a.active { background: var(--gold); color: var(--ink); border-color: var(--gold); }
+
+    /* Layout */
+    .page { max-width: 780px; margin: 0 auto; padding: 2rem 1.5rem 4rem; flex: 1; display: flex; flex-direction: column; gap: 1.5rem; }
+    .page-head h1 { font-family: 'Lora', serif; font-size: 1.75rem; font-weight: 700; margin-bottom: .35rem; }
+    .page-head p { font-size: .875rem; color: var(--ink-dim); line-height: 1.6; max-width: 560px; }
+
+    /* Suggestions */
+    .suggestions { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .sug-btn {
+      padding: .4rem .85rem; border: 1.5px solid var(--border); border-radius: 20px;
+      background: var(--paper); font-size: .78rem; color: var(--ink-mid); cursor: pointer;
+      transition: all .15s; font-family: inherit;
+    }
+    .sug-btn:hover { border-color: var(--cobalt); color: var(--cobalt); background: #fff; }
+
+    /* Chat */
+    .chat-box {
+      background: var(--paper); border: 2px solid var(--ink); border-radius: 4px;
+      box-shadow: 4px 4px 0 var(--ink); display: flex; flex-direction: column; min-height: 360px;
+    }
+    .chat-messages { flex: 1; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; max-height: 480px; }
+    .msg { display: flex; gap: .75rem; align-items: flex-start; }
+    .msg.user { flex-direction: row-reverse; }
+    .avatar { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: .65rem; font-weight: 700; }
+    .avatar.bot { background: var(--cobalt); color: #fff; }
+    .avatar.user { background: var(--gold); color: var(--ink); }
+    .bubble { max-width: 82%; padding: .7rem .95rem; border-radius: 4px; font-size: .84rem; line-height: 1.65; }
+    .bubble.bot { background: #fff; border: 1.5px solid var(--border); color: var(--ink); }
+    .bubble.user { background: var(--cobalt); color: #fff; }
+    .bubble strong { font-weight: 700; }
+    .bubble p + p { margin-top: .5rem; }
+
+    /* Input */
+    .chat-input-area {
+      padding: .75rem 1.25rem; border-top: 1.5px solid rgba(26,22,18,.1);
+      background: var(--cream-dark); display: flex; gap: .5rem; border-radius: 0 0 2px 2px;
+    }
+    .chat-input {
+      flex: 1; background: #fff; border: 1.5px solid rgba(26,22,18,.2); border-radius: 3px;
+      padding: .55rem .8rem; font-size: .84rem; font-family: inherit; color: var(--ink);
+      outline: none; transition: border-color .15s; resize: none;
+    }
+    .chat-input:focus { border-color: var(--cobalt); }
+    .send-btn {
+      background: var(--cobalt); color: #fff; border: none; border-radius: 3px;
+      padding: .55rem 1.1rem; font-size: .78rem; font-weight: 700; letter-spacing: .05em;
+      text-transform: uppercase; cursor: pointer; font-family: inherit; transition: opacity .15s;
+      white-space: nowrap;
+    }
+    .send-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* Loading dot */
+    .dot-loader { display: inline-flex; gap: 4px; align-items: center; padding: .2rem 0; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-dim); animation: blink 1.2s infinite; }
+    .dot:nth-child(2) { animation-delay: .2s; }
+    .dot:nth-child(3) { animation-delay: .4s; }
+    @keyframes blink { 0%,80%,100% { opacity:.2 } 40% { opacity:1 } }
+
+    /* Error banner */
+    .err-banner { background: rgba(201,76,26,.08); border: 1.5px solid rgba(201,76,26,.3); border-radius: 3px; padding: .6rem .9rem; font-size: .8rem; color: var(--rust); }
+
+    @media (max-width: 600px) {
+      .nav { display: none; }
+      .page { padding: 1.25rem 1rem 3rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <a href="/" class="logo">Observatory <span>✦</span></a>
+  <nav class="nav">
+    <a href="/">Dashboard</a>
+    <a href="/brain">Taste Map</a>
+    <a href="/ask" class="active">Ask Oracle</a>
+  </nav>
+</header>
+
+<div class="page">
+  <div class="page-head">
+    <h1>Ask the Oracle</h1>
+    <p>Your personal film and TV advisor — wired into your actual ratings, watchlist, and taste patterns. Ask anything.</p>
+  </div>
+
+  <div id="no-key-banner" class="err-banner" style="display:none">
+    The Oracle is not configured yet. Set <code>ANTHROPIC_API_KEY</code> in the server environment to enable it.
+  </div>
+
+  <div class="suggestions">
+    <button class="sug-btn" onclick="ask(this.textContent)">I want to zone out to a classic action film with 8+ IMDB — what do you recommend?</button>
+    <button class="sug-btn" onclick="ask(this.textContent)">What should I watch next given my taste in crime dramas?</button>
+    <button class="sug-btn" onclick="ask(this.textContent)">What animated films am I likely missing that I'd rate 5 stars?</button>
+    <button class="sug-btn" onclick="ask(this.textContent)">Recommend a show I can binge in a weekend</button>
+    <button class="sug-btn" onclick="ask(this.textContent)">What pattern explains why I rate sci-fi films lower than sci-fi shows?</button>
+  </div>
+
+  <div class="chat-box">
+    <div class="chat-messages" id="messages">
+      <div class="msg">
+        <div class="avatar bot">✦</div>
+        <div class="bubble bot">
+          I have access to your full IMDB history — 794 films rated, avg ★3.78. Ask me anything about your taste, or ask for a specific recommendation. I'll cite your actual history to justify it.
+        </div>
+      </div>
+    </div>
+    <div class="chat-input-area">
+      <textarea class="chat-input" id="input" rows="1" placeholder="Ask about your taste…" onkeydown="handleKey(event)"></textarea>
+      <button class="send-btn" id="send-btn" onclick="sendQuestion()">Send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const messagesEl = document.getElementById('messages');
+  const inputEl = document.getElementById('input');
+  const sendBtn = document.getElementById('send-btn');
+
+  function addMsg(text, role) {
+    const div = document.createElement('div');
+    div.className = `msg ${role}`;
+    const avatar = document.createElement('div');
+    avatar.className = `avatar ${role === 'user' ? 'user' : 'bot'}`;
+    avatar.textContent = role === 'user' ? 'Me' : '✦';
+    const bubble = document.createElement('div');
+    bubble.className = `bubble ${role === 'user' ? 'user' : 'bot'}`;
+    if (role === 'bot') {
+      bubble.innerHTML = formatAnswer(text);
+    } else {
+      bubble.textContent = text;
+    }
+    div.appendChild(avatar);
+    div.appendChild(bubble);
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return bubble;
+  }
+
+  function formatAnswer(text) {
+    return text
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n\n/g, '</p><p>')
+      .replace(/\n/g, '<br>')
+      .replace(/^/, '<p>')
+      .replace(/$/, '</p>');
+  }
+
+  function addLoader() {
+    const div = document.createElement('div');
+    div.className = 'msg';
+    div.id = 'loader-msg';
+    div.innerHTML = `<div class="avatar bot">✦</div><div class="bubble bot"><div class="dot-loader"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>`;
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function removeLoader() {
+    document.getElementById('loader-msg')?.remove();
+  }
+
+  async function ask(question) {
+    inputEl.value = question;
+    await sendQuestion();
+  }
+
+  async function sendQuestion() {
+    const q = inputEl.value.trim();
+    if (!q) return;
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
+    sendBtn.disabled = true;
+
+    addMsg(q, 'user');
+    addLoader();
+
+    try {
+      const resp = await fetch('/api/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q }),
+      });
+      removeLoader();
+      if (resp.status === 503) {
+        document.getElementById('no-key-banner').style.display = 'block';
+        addMsg('The Oracle is not configured yet — ANTHROPIC_API_KEY is missing on the server.', 'bot');
+      } else if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        addMsg(`Error: ${err.detail || resp.statusText}`, 'bot');
+      } else {
+        const data = await resp.json();
+        addMsg(data.answer || '(no answer)', 'bot');
+      }
+    } catch (e) {
+      removeLoader();
+      addMsg(`Network error: ${e.message}`, 'bot');
+    } finally {
+      sendBtn.disabled = false;
+      inputEl.focus();
+    }
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendQuestion();
+    }
+    // Auto-grow textarea
+    setTimeout(() => {
+      inputEl.style.height = 'auto';
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+    }, 0);
+  }
+</script>
+</body>
+</html>

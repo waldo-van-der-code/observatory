@@ -18,8 +18,9 @@ from pydantic import BaseModel
 from api_search import _tmdb_key, search
 from db import get_conn, get_watchlist, get_or_create_item, init_db
 
-DASHBOARD = Path(__file__).parent / "dashboard.html"
-BRAIN_HTML = Path(__file__).parent / "brain.html"
+DASHBOARD    = Path(__file__).parent / "dashboard.html"
+ASK_HTML     = Path(__file__).parent / "ask-oracle.html"
+BRAIN_HTML   = Path(__file__).parent / "brain.html"
 STATIC_DIR = Path(__file__).parent / "static"
 DOCS_DIR   = Path(__file__).parent / "docs"
 BRAIN_DATA = Path(__file__).parent / "data" / "processed" / "brain_data.json"
@@ -818,3 +819,116 @@ def brain_art_file(zone_id: str):
     if not path.exists():
         raise HTTPException(404, "Art not generated yet")
     return FileResponse(path, media_type="image/png")
+
+
+# ── Ask Oracle ────────────────────────────────────────────────────────────────
+
+@app.get("/ask", response_class=FileResponse)
+def ask_page():
+    if ASK_HTML.exists():
+        return FileResponse(ASK_HTML, media_type="text/html")
+    raise HTTPException(404, "ask-oracle.html not found")
+
+
+class AskIn(BaseModel):
+    question: str
+
+
+@app.post("/api/ask")
+async def api_ask(body: AskIn):
+    import os
+    import httpx as _httpx
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise HTTPException(503, "ANTHROPIC_API_KEY not configured on the server")
+
+    # Build context from DB
+    conn = get_conn()
+    try:
+        top_films = conn.execute("""
+            SELECT m.title, m.year, m.genres, m.director, ui.rating
+            FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+            WHERE ui.rating >= 4 AND m.media_type IN ('film','movie') AND m.source='imdb'
+            ORDER BY ui.rating DESC, m.year DESC LIMIT 40
+        """).fetchall()
+        top_shows = conn.execute("""
+            SELECT m.title, m.year, m.genres, ui.rating
+            FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+            WHERE ui.rating >= 4 AND m.media_type='tv_show' AND m.source='imdb'
+            ORDER BY ui.rating DESC LIMIT 20
+        """).fetchall()
+        top_dirs = conn.execute("""
+            SELECT m.director, COUNT(*) n, ROUND(AVG(ui.rating),2) avg
+            FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+            WHERE m.director IS NOT NULL AND ui.rating IS NOT NULL AND m.source='imdb'
+            GROUP BY m.director HAVING n >= 2
+            ORDER BY avg DESC, n DESC LIMIT 10
+        """).fetchall()
+        stats = conn.execute("""
+            SELECT COUNT(*) total, ROUND(AVG(ui.rating),2) avg
+            FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+            WHERE m.source='imdb' AND ui.rating IS NOT NULL
+        """).fetchone()
+        watchlist = conn.execute("""
+            SELECT m.title, m.year FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+            WHERE ui.interaction='want' AND m.source='imdb' LIMIT 15
+        """).fetchall()
+    finally:
+        conn.close()
+
+    def fmt(rows):
+        return ", ".join(f"{r[0]} ({r[1] or '?'}) ★{r[-1]}" for r in rows[:20])
+
+    system = f"""You are the Oracle — a personal film and TV advisor with complete access to Waldo's taste data.
+
+TASTE PROFILE (794 films rated, avg ★{stats[1] if stats else '?'}/5):
+
+Top-rated films (4-5★):
+{fmt(top_films)}
+
+Top-rated shows (4-5★):
+{fmt(top_shows)}
+
+Top directors (by avg rating, min 2 films):
+{", ".join(f"{r[0]} ({r[2]}★ avg, {r[1]} films)" for r in top_dirs)}
+
+Watchlist (want to see):
+{", ".join(f"{r[0]} ({r[1] or '?'})" for r in watchlist)}
+
+KEY PATTERNS:
+- 5-star films: City of God, Fight Club, Eyes Wide Shut, The Usual Suspects, Three Colors Blue, Black Swan, Spider-Verse, LotR, Shawshank, Good Will Hunting, Les Misérables
+- Top directors: Todd Haynes, Kurosawa, Miyazaki (7 films), Coppola, Truffaut
+- 5-star shows: Black Mirror, Rick and Morty, Band of Brothers, Attack on Titan, Berlin Alexanderplatz, Cowboy Bebop
+- Strong genre affinities: Drama+Crime, Animation, Musical, Biography, Sci-Fi Thriller
+
+ANSWER STYLE:
+- Be specific — cite films from Waldo's actual history to justify your reasoning
+- Short and direct — no filler, no hedging
+- When recommending: give title, year, one reason tied to something he's already rated
+- IMDB score and streaming availability in DE is useful to mention when relevant"""
+
+    messages = [{"role": "user", "content": body.question}]
+
+    async with _httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-5",
+                "max_tokens": 1024,
+                "system": system,
+                "messages": messages,
+            },
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(502, f"Claude API error: {resp.text[:300]}")
+
+    data = resp.json()
+    answer = data["content"][0]["text"] if data.get("content") else ""
+    return JSONResponse({"answer": answer})
