@@ -21,11 +21,15 @@ from db import get_conn, get_watchlist, get_or_create_item, init_db
 DASHBOARD = Path(__file__).parent / "dashboard.html"
 BRAIN_HTML = Path(__file__).parent / "brain.html"
 STATIC_DIR = Path(__file__).parent / "static"
+DOCS_DIR   = Path(__file__).parent / "docs"
 BRAIN_DATA = Path(__file__).parent / "data" / "processed" / "brain_data.json"
 BRAIN_ART  = Path(__file__).parent / "data" / "cache" / "brain_art"
 
 app = FastAPI(title="Entertainment Center")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# Serve docs/culture/ at /culture so dashboard section images resolve
+if (DOCS_DIR / "culture").exists():
+    app.mount("/culture", StaticFiles(directory=DOCS_DIR / "culture"), name="culture")
 
 # Allow file:// pages to call the API (origin is "null" for local files)
 app.add_middleware(
