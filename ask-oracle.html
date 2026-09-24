@@ -109,11 +109,7 @@
 <div class="page">
   <div class="page-head">
     <h1>Ask the Oracle</h1>
-    <p>Your personal film and TV advisor — wired into your actual ratings, watchlist, and taste patterns. Ask anything.</p>
-  </div>
-
-  <div id="no-key-banner" class="err-banner" style="display:none">
-    The Oracle is not configured yet. Set <code>ANTHROPIC_API_KEY</code> in the server environment to enable it.
+    <p>Your personal film and TV advisor — wired into your actual ratings, watchlist, and taste patterns. Powered by Claude via your subscription. Ask anything.</p>
   </div>
 
   <div class="suggestions">
@@ -129,7 +125,7 @@
       <div class="msg">
         <div class="avatar bot">✦</div>
         <div class="bubble bot">
-          I have access to your full IMDB history — 794 films rated, avg ★3.78. Ask me anything about your taste, or ask for a specific recommendation. I'll cite your actual history to justify it.
+          I have access to your full IMDB history. Ask me anything about your taste, or ask for a specific recommendation — I'll cite films you've actually rated to justify it.
         </div>
       </div>
     </div>
@@ -209,10 +205,7 @@
         body: JSON.stringify({ question: q }),
       });
       removeLoader();
-      if (resp.status === 503) {
-        document.getElementById('no-key-banner').style.display = 'block';
-        addMsg('The Oracle is not configured yet — ANTHROPIC_API_KEY is missing on the server.', 'bot');
-      } else if (!resp.ok) {
+      if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         addMsg(`Error: ${err.detail || resp.statusText}`, 'bot');
       } else {

@@ -836,12 +836,12 @@ class AskIn(BaseModel):
 
 @app.post("/api/ask")
 async def api_ask(body: AskIn):
-    import os
-    import httpx as _httpx
+    import asyncio, shutil, tempfile
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        raise HTTPException(503, "ANTHROPIC_API_KEY not configured on the server")
+    # Use claude CLI on the Claude Code subscription — same pattern as steuermentoring-poc
+    cli = shutil.which("claude") or "/home/ubuntu/.nvm/versions/node/v22.23.2/bin/claude"
+    if not os.path.isfile(cli):
+        raise HTTPException(503, "claude CLI not found — is Claude Code installed on this server?")
 
     # Build context from DB
     conn = get_conn()
@@ -882,7 +882,7 @@ async def api_ask(body: AskIn):
 
     system = f"""You are the Oracle — a personal film and TV advisor with complete access to Waldo's taste data.
 
-TASTE PROFILE (794 films rated, avg ★{stats[1] if stats else '?'}/5):
+TASTE PROFILE ({stats[0] if stats else '?'} films rated, avg ★{stats[1] if stats else '?'}/5):
 
 Top-rated films (4-5★):
 {fmt(top_films)}
@@ -908,27 +908,32 @@ ANSWER STYLE:
 - When recommending: give title, year, one reason tied to something he's already rated
 - IMDB score and streaming availability in DE is useful to mention when relevant"""
 
-    messages = [{"role": "user", "content": body.question}]
+    isolation_flags = [
+        "--tools", "", "--strict-mcp-config", "--setting-sources", "local",
+        "--disable-slash-commands", "--no-session-persistence",
+    ]
+    command = [cli, "-p", "--model", "sonnet", "--system-prompt", system, *isolation_flags]
 
-    async with _httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-sonnet-4-5",
-                "max_tokens": 1024,
-                "system": system,
-                "messages": messages,
-            },
+    with tempfile.TemporaryDirectory(prefix="observatory-oracle-") as tmpdir:
+        proc = await asyncio.create_subprocess_exec(
+            *command,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=tmpdir,
         )
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(input=body.question.encode()),
+                timeout=60.0,
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            raise HTTPException(504, "Oracle timed out — try a shorter question")
 
-    if resp.status_code != 200:
-        raise HTTPException(502, f"Claude API error: {resp.text[:300]}")
+    if proc.returncode != 0:
+        err = stderr.decode(errors="replace")[:300]
+        raise HTTPException(502, f"Claude CLI error (rc={proc.returncode}): {err}")
 
-    data = resp.json()
-    answer = data["content"][0]["text"] if data.get("content") else ""
+    answer = stdout.decode(errors="replace").strip()
     return JSONResponse({"answer": answer})
