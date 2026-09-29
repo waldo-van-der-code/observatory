@@ -6,8 +6,7 @@ set -euo pipefail
 
 ORACLE_DIR="/home/ubuntu/observatory"
 SERVICE="observatory"
-# Core pages always checked; /picks and /api/recs added after P3b
-PAGES=("/" "/brain" "/ask")
+PAGES=("/" "/brain" "/ask" "/picks" "/api/recs")
 BASE_URL="https://observatory.vanderlore.de"
 AUTH="waldo:odlaw"
 

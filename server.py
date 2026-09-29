@@ -22,6 +22,7 @@ from db import get_conn, get_watchlist, get_or_create_item, init_db
 DASHBOARD    = Path(__file__).parent / "dashboard.html"
 ASK_HTML     = Path(__file__).parent / "ask-oracle.html"
 BRAIN_HTML   = Path(__file__).parent / "brain.html"
+PICKS_HTML   = Path(__file__).parent / "static" / "picks.html"
 STATIC_DIR = Path(__file__).parent / "static"
 DOCS_DIR   = Path(__file__).parent / "docs"
 BRAIN_DATA = Path(__file__).parent / "data" / "processed" / "brain_data.json"
@@ -824,6 +825,85 @@ def brain_art_file(zone_id: str):
     if not path.exists():
         raise HTTPException(404, "Art not generated yet")
     return FileResponse(path, media_type="image/png")
+
+
+# ── Picks (curated recommendations) ──────────────────────────────────────────
+
+@app.get("/picks", response_class=FileResponse)
+def picks_page():
+    if PICKS_HTML.exists():
+        return FileResponse(PICKS_HTML, media_type="text/html")
+    raise HTTPException(404, "picks.html not found")
+
+
+@app.get("/api/recs")
+def api_recs(
+    media: str = Query("", description="media_type filter"),
+    page: int = Query(1, ge=1),
+    per: int = Query(15, ge=1, le=100),
+):
+    conn = get_conn()
+    try:
+        base_q = """
+            SELECT id, title, author_or_director, media_type, reason,
+                   potential_issue, confidence, status, generated_at
+            FROM recommendations
+            WHERE status IS NULL OR status = ''
+        """
+        params: list = []
+        if media:
+            base_q += " AND media_type = ?"
+            params.append(media)
+
+        count_q = f"SELECT COUNT(*) FROM ({base_q})"
+        total = conn.execute(count_q, params).fetchone()[0]
+
+        query = base_q + " ORDER BY id DESC LIMIT ? OFFSET ?"
+        params.extend([per, (page - 1) * per])
+        rows = conn.execute(query, params).fetchall()
+    finally:
+        conn.close()
+
+    items = []
+    for r in rows:
+        conf = r["confidence"] or 0
+        conf_pct = round(conf * 100) if conf <= 1.0 else round(conf)
+        issue = r["potential_issue"] or ""
+        if issue.startswith("⚠️"):
+            issue = issue[len("⚠️"):].strip()
+        elif issue.startswith("⚠"):
+            issue = issue[1:].strip()
+        items.append({
+            "id": r["id"],
+            "title": r["title"],
+            "author_or_director": r["author_or_director"],
+            "media_type": r["media_type"],
+            "reason": r["reason"],
+            "potential_issue": issue,
+            "confidence_pct": conf_pct,
+            "status": r["status"] or "",
+            "generated_at": r["generated_at"],
+        })
+
+    return JSONResponse({"total": total, "page": page, "per": per, "items": items})
+
+
+class RecStatusIn(BaseModel):
+    status: str
+
+
+@app.post("/api/recs/{rec_id}")
+def api_recs_update(rec_id: int, body: RecStatusIn):
+    allowed = {"seen", "dismissed", "want", ""}
+    if body.status not in allowed:
+        raise HTTPException(400, f"status must be one of: {allowed}")
+    conn = get_conn()
+    try:
+        conn.execute("UPDATE recommendations SET status = ? WHERE id = ?", (body.status, rec_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
 
 
 # ── Ask Oracle ────────────────────────────────────────────────────────────────

@@ -1176,53 +1176,6 @@ def render(conn) -> str:
     themes_html = "".join(f'<li>{t}</li>' for t in profile.get("top_themes", []))
     dislikes_html = "".join(f'<li>{d}</li>' for d in profile.get("dislikes_pattern", []))
 
-    # ── Recommendations ───────────────────────────────────────────────────────
-    def rec_card(r: dict) -> str:
-        rid = r["id"]
-        conf_pct = int(r.get("confidence", 0) * 100)
-        mt = r["media_type"]
-        if mt == "tv_show":
-            badge, wl_label, api_type = "📺", "Want to watch", "tv"
-        elif mt == "film":
-            badge, wl_label, api_type = "🎬", "Want to watch", "film"
-        elif mt == "music":
-            badge, wl_label, api_type = "🎵", "Want to listen", "music"
-        elif mt == "podcast":
-            badge, wl_label, api_type = "🎙️", "Follow", "podcast"
-        elif mt == "comic":
-            badge, wl_label, api_type = "🗯️", "Want to read", "book"
-        else:
-            badge, wl_label, api_type = "📖", "Want to read", "book"
-        safe_title = r["title"].replace("'", "\\'").replace('"', '&quot;')
-        stars = "".join(
-            f'<span class="star" id="s-{rid}-{i}" onclick="rateRec({rid},{i})" '
-            f'onmouseenter="hoverStars({rid},{i})" onmouseleave="resetStars({rid})">★</span>'
-            for i in range(1, 6)
-        )
-        return (
-            f'<div class="card rec-card" id="rec-{rid}" style="cursor:pointer" data-title="{safe_title}" data-type="{api_type}" onclick="searchAndShowDetail(\'{safe_title}\',\'{api_type}\')">'
-            f'<div class="rec-header">'
-            f'<span class="rec-badge">{badge}</span>'
-            f'<div class="rec-title-block">'
-            f'<strong>{r["title"]}</strong><br>'
-            f'<span class="dim">{r.get("author_or_director","")}{(" · " + str(r["year"])) if r.get("year") else ""}</span>'
-            f'</div>'
-            f'<span class="rec-conf">{conf_pct}%</span>'
-            f'</div>'
-            f'<p class="rec-reason">{r.get("reason","")}</p>'
-            f'<p class="rec-friction">⚠️ {r.get("potential_issue","")}</p>'
-            f'<div class="rec-actions" onclick="event.stopPropagation()">'
-            f'<div class="star-row" id="stars-{rid}">{stars}</div>'
-            f'<span class="rated-badge" id="rated-{rid}" style="display:none"></span>'
-            f'<button class="action-btn watchlist" id="wl-{rid}" onclick="toggleWatchlist({rid},this)">{wl_label}</button>'
-            f''
-            f'<button class="action-btn dismiss" onclick="dismiss({rid})">Dismiss</button>'
-            f'</div>'
-            f'</div>'
-        )
-
-    all_recs_html = "".join(rec_card(r) for r in recs) or "<p class='dim'>No recommendations loaded yet.</p>"
-
     # ── Authors table ─────────────────────────────────────────────────────────
     authors_html = ""
     for a in top_authors:
@@ -1470,7 +1423,7 @@ def render(conn) -> str:
   .snav-link.active {{ color:var(--rust); border-bottom-color:var(--rust); }}
   .snav-link:focus-visible {{ outline:2px solid var(--rust); outline-offset:2px; }}
   /* Section anchors need scroll-margin to clear primary nav + search + section nav */
-  #sec-overview, #sec-films, #sec-series, #sec-music-wrap, #sec-books, #sec-podcasts, #sec-comics, #sec-youtube, #sec-tiktok, #sec-patterns, #sec-recs {{
+  #sec-overview, #sec-films, #sec-series, #sec-music-wrap, #sec-books, #sec-podcasts, #sec-comics, #sec-youtube, #sec-tiktok, #sec-patterns {{
     scroll-margin-top: calc(var(--primary-h) + var(--search-h) + 52px);
   }}
   .result-card {{ display:flex; gap:12px; background:var(--bg-card); border:1px solid var(--border); border-radius:3px; padding:14px; margin-bottom:10px; transition:border-color .15s, box-shadow .15s; }}
@@ -1660,12 +1613,6 @@ def render(conn) -> str:
     <button onclick="document.getElementById('related-panel').style.display='none'" style="background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer;min-width:44px;min-height:44px" aria-label="Close">✕</button>
   </div>
   <div id="related-list"></div>
-</div>
-
-<!-- Watchlist panel -->
-<div id="watchlist-panel" class="panel" style="display:none">
-  <h2>My Watchlist</h2>
-  <div id="watchlist-list"></div>
 </div>
 
 <div style="margin-bottom:24px">
@@ -2079,21 +2026,6 @@ def render(conn) -> str:
 
 </div><!-- /#analytics-view -->
 
-<!-- ═══ RECOMMENDATIONS ═══════════════════════════════════════════════════ -->
-<div id="sec-recs">
-  <div class="sec-heading">
-    <div class="sec-eyebrow" style="color:var(--accent-recs)">Recommendations</div>
-    <div class="sec-title recs">What's next.</div>
-  </div>
-  <div class="panel" style="margin-top:16px" id="recs-panel">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px">
-      <span id="recs-count" class="dim" style="font-size:13px">{len(recs)} across all media</span>
-      <button onclick="refreshRecs()" class="action-btn" style="font-size:12px;padding:5px 12px;min-height:32px">↺ Refresh</button>
-    </div>
-    {all_recs_html}
-  </div>
-</div>
-
 </main><!-- /.wrap -->
 
 <script>
@@ -2104,118 +2036,13 @@ function switchTab(name) {{
   event.target.classList.add('active');
 }}
 
-function dismiss(id) {{
-  const el = document.getElementById('rec-'+id);
-  if (el) el.style.display='none';
-  const existing = JSON.parse(localStorage.getItem('dismissed_recs') || '[]');
-  if (!existing.includes(id)) existing.push(id);
-  localStorage.setItem('dismissed_recs', JSON.stringify(existing));
-}}
-
-function toggleWatchlist(id, btn) {{
-  const key = 'watchlist_recs';
-  const existing = JSON.parse(localStorage.getItem(key) || '[]');
-  if (existing.includes(id)) {{
-    localStorage.setItem(key, JSON.stringify(existing.filter(x => x !== id)));
-    btn.classList.remove('saved');
-    btn.textContent = btn.textContent.replace('✓ ','');
-  }} else {{
-    existing.push(id);
-    localStorage.setItem(key, JSON.stringify(existing));
-    btn.classList.add('saved');
-    btn.textContent = '✓ ' + btn.textContent;
-  }}
-}}
-
-function hoverStars(id, n) {{
-  for (let i=1; i<=5; i++) {{
-    const s = document.getElementById('s-'+id+'-'+i);
-    if (s) s.style.color = i<=n ? '#f0883e' : '#30363d';
-  }}
-}}
-
-function resetStars(id) {{
-  const saved = (JSON.parse(localStorage.getItem('rated_recs') || '{{}}'  ))[id];
-  for (let i=1; i<=5; i++) {{
-    const s = document.getElementById('s-'+id+'-'+i);
-    if (s) s.style.color = saved && i<=saved ? '#f0883e' : '#30363d';
-  }}
-}}
-
-async function rateRec(id, stars) {{
-  // 1. Immediate localStorage save + animation
-  const ratings = JSON.parse(localStorage.getItem('rated_recs') || '{{}}');
-  ratings[id] = stars;
-  localStorage.setItem('rated_recs', JSON.stringify(ratings));
-  const existing = JSON.parse(localStorage.getItem('dismissed_recs') || '[]');
-  if (!existing.includes(id)) {{ existing.push(id); localStorage.setItem('dismissed_recs', JSON.stringify(existing)); }}
-  const card = document.getElementById('rec-'+id);
-  if (card) {{
-    card.style.overflow = 'hidden';
-    card.style.maxHeight = card.offsetHeight + 'px';
-    card.style.marginBottom = card.style.marginBottom || getComputedStyle(card).marginBottom;
-    void card.offsetHeight;
-    card.style.transition = 'opacity .25s ease, max-height .35s ease .15s, margin-bottom .35s ease .15s, padding .35s ease .15s';
-    card.style.opacity = '0';
-    card.style.maxHeight = '0';
-    card.style.marginBottom = '0';
-    card.style.paddingTop = '0';
-    card.style.paddingBottom = '0';
-    setTimeout(() => card.remove(), 600);
-  }}
-  // 2. Persist to server — resolve title → TMDB/OL ID → /api/interactions
-  if (!card) return;
-  const title = card.dataset.title;
-  const type = card.dataset.type;
-  if (!title || !type || type === 'music' || type === 'podcast') return; // no search API for these yet
-  try {{
-    const sr = await fetch(`${{API}}/api/search?q=${{encodeURIComponent(title)}}&type=${{type}}`);
-    if (!sr.ok) return;
-    const results = await sr.json();
-    if (!results.length) return;
-    const item = results[0];
-    // Ensure item is in DB
-    await fetch(API+'/api/items', {{
-      method:'POST', headers:{{'Content-Type':'application/json'}},
-      body: JSON.stringify(item)
-    }});
-    // Record rating
-    await fetch(API+'/api/interactions', {{
-      method:'POST', headers:{{'Content-Type':'application/json'}},
-      body: JSON.stringify({{item_id: item.id, interaction_type:'rating', value:String(stars)}})
-    }});
-  }} catch(e) {{
-    console.warn('rateRec: server persist failed', e);
-  }}
-}}
-
 document.addEventListener('DOMContentLoaded', () => {{
-  const dismissed = JSON.parse(localStorage.getItem('dismissed_recs') || '[]');
-  dismissed.forEach(id => {{
-    const el = document.getElementById('rec-'+id);
-    if (el) el.style.display='none';
-  }});
-  const watchlisted = JSON.parse(localStorage.getItem('watchlist_recs') || '[]');
-  watchlisted.forEach(id => {{
-    const btn = document.getElementById('wl-'+id);
-    if (btn) {{ btn.classList.add('saved'); btn.textContent = '✓ '+btn.textContent; }}
-  }});
-  const rated = JSON.parse(localStorage.getItem('rated_recs') || '{{}}');
-  Object.entries(rated).forEach(([id, stars]) => {{
-    const badge = document.getElementById('rated-'+id);
-    if (badge) {{ badge.textContent = '★'.repeat(stars); badge.style.display='inline'; }}
-    const starRow = document.getElementById('stars-'+id);
-    if (starRow) starRow.style.display='none';
-  }});
   // Measure search bar height (primary nav height is fixed in CSS)
   const searchBar = document.getElementById('search-bar');
   if (searchBar) {{
     document.documentElement.style.setProperty('--search-h', searchBar.offsetHeight + 'px');
   }}
-  loadWatchlist();
   initSectionNav();
-  updateRecsCount();
-  initRecPager();
   initCollapsibles();
 }});
 
@@ -2251,7 +2078,7 @@ function toggleCollapsible(btn) {{
 }}
 
 function initSectionNav() {{
-  const sectionIds = ['sec-films','sec-series','sec-music-wrap','sec-books','sec-podcasts','sec-comics','sec-youtube','sec-tiktok','sec-patterns','sec-recs'];
+  const sectionIds = ['sec-films','sec-series','sec-music-wrap','sec-books','sec-podcasts','sec-comics','sec-youtube','sec-tiktok','sec-patterns'];
   const links = {{}};
   sectionIds.forEach(id => {{
     const link = document.querySelector(`.snav-link[href="#${{id}}"]`);
@@ -2273,91 +2100,6 @@ function initSectionNav() {{
     const el = document.getElementById(id);
     if (el) observer.observe(el);
   }});
-}}
-
-function updateRecsCount() {{
-  const total = document.querySelectorAll('.rec-card').length;
-  const hidden = document.querySelectorAll('.rec-card[style*="display: none"], .rec-card[style*="display:none"]').length;
-  const el = document.getElementById('recs-count');
-  if (el) el.textContent = `${{total - hidden}} across all media`;
-}}
-
-function refreshRecs() {{
-  document.querySelectorAll('.rec-card').forEach(card => {{ card.style.cssText = ''; }});
-  const dismissed = JSON.parse(localStorage.getItem('dismissed_recs') || '[]');
-  dismissed.forEach(id => {{
-    const el = document.getElementById('rec-'+id);
-    if (el) el.style.display = 'none';
-  }});
-  const rated = JSON.parse(localStorage.getItem('rated_recs') || '{{}}');
-  Object.entries(rated).forEach(([id, stars]) => {{
-    const badge = document.getElementById('rated-'+id);
-    if (badge) {{ badge.textContent = '★'.repeat(Number(stars)); badge.style.display = 'inline'; }}
-    const starRow = document.getElementById('stars-'+id);
-    if (starRow) starRow.style.display = 'none';
-  }});
-  if (document.getElementById('rec-pager')) showRecPage(0);
-  updateRecsCount();
-}}
-
-// ── Rec pager ──────────────────────────────────────────────────────────────
-const REC_PAGE_SIZE = 4;
-let _recPage = 0;
-
-function initRecPager() {{
-  const cards = Array.from(document.querySelectorAll('.rec-card'));
-  if (cards.length <= REC_PAGE_SIZE) return;
-
-  const panel = document.getElementById('recs-panel');
-  const numPages = Math.ceil(cards.length / REC_PAGE_SIZE);
-
-  const pagerEl = document.createElement('div');
-  pagerEl.className = 'rec-pager';
-  pagerEl.id = 'rec-pager';
-
-  const prev = document.createElement('button');
-  prev.className = 'page-btn'; prev.id = 'rec-prev'; prev.textContent = '←';
-  prev.onclick = () => showRecPage(_recPage - 1);
-
-  const dots = document.createElement('div');
-  dots.style.cssText = 'display:flex;gap:6px;align-items:center';
-  for (let i = 0; i < numPages; i++) {{
-    const d = document.createElement('div');
-    d.className = 'rec-pager-dot' + (i === 0 ? ' active' : '');
-    d.dataset.page = i;
-    d.onclick = () => showRecPage(i);
-    dots.appendChild(d);
-  }}
-
-  const next = document.createElement('button');
-  next.className = 'page-btn'; next.id = 'rec-next'; next.textContent = '→';
-  next.onclick = () => showRecPage(_recPage + 1);
-
-  pagerEl.appendChild(prev);
-  pagerEl.appendChild(dots);
-  pagerEl.appendChild(next);
-  panel.appendChild(pagerEl);
-
-  showRecPage(0);
-}}
-
-function showRecPage(page) {{
-  const cards = Array.from(document.querySelectorAll('.rec-card'));
-  const numPages = Math.ceil(cards.length / REC_PAGE_SIZE);
-  _recPage = Math.max(0, Math.min(page, numPages - 1));
-
-  cards.forEach((c, i) => {{
-    const inPage = i >= _recPage * REC_PAGE_SIZE && i < (_recPage + 1) * REC_PAGE_SIZE;
-    c.style.display = inPage ? '' : 'none';
-  }});
-
-  document.querySelectorAll('.rec-pager-dot').forEach(d => {{
-    d.classList.toggle('active', Number(d.dataset.page) === _recPage);
-  }});
-
-  document.getElementById('rec-prev').disabled = _recPage === 0;
-  document.getElementById('rec-next').disabled = _recPage >= numPages - 1;
-  updateRecsCount();
 }}
 
 // When opened as file:// use absolute server URL; when served, use relative
@@ -2519,7 +2261,6 @@ async function toggleItemWatchlist(item, btn) {{
     await fetch(API+'/api/watchlist/'+encodeURIComponent(item.id), {{method:'DELETE'}});
     btn.classList.remove('saved');
     btn.textContent = '+ Watchlist';
-    loadWatchlist();
     return;
   }}
   btn.textContent = '…';
@@ -2537,7 +2278,6 @@ async function toggleItemWatchlist(item, btn) {{
     }});
     btn.classList.add('saved');
     btn.textContent = '✓ On watchlist';
-    loadWatchlist();
   }} catch(e) {{
     btn.textContent = 'Error';
   }} finally {{
@@ -2576,39 +2316,6 @@ async function rateItem(itemId, stars, el) {{
     method:'POST', headers:{{'Content-Type':'application/json'}},
     body: JSON.stringify({{item_id:itemId, interaction_type:'rating', value:String(stars)}})
   }});
-}}
-
-// ── Watchlist panel ───────────────────────────────────────────────────────
-async function loadWatchlist() {{
-  try {{
-    const r = await fetch(API+'/api/watchlist');
-    const items = await r.json();
-    const panel = document.getElementById('watchlist-panel');
-    const list = document.getElementById('watchlist-list');
-    if (!items.length) {{ panel.style.display='none'; return; }}
-    panel.style.display='block';
-    list.innerHTML = items.map(it => {{
-      const cover = it.cover_url
-        ? `<img class="wl-cover" src="${{it.cover_url}}" onerror="this.style.display='none'">`
-        : `<div class="wl-cover-ph">${{typeEmoji(it.media_type)}}</div>`;
-      const sub = [it.author||it.director, it.year].filter(Boolean).join(' · ');
-      return `<div class="wl-item">
-        ${{cover}}
-        <div style="flex:1;min-width:0">
-          <div style="font-size:13px;font-weight:600;color:#e6edf3">${{it.title}}</div>
-          <div class="dim">${{sub}}</div>
-          <span class="wl-badge">${{it.shelf==='to-read'?'To read':'To watch'}}</span>
-        </div>
-        <button class="action-btn dismiss" onclick='removeWatchlistItem("${{it.id}}",this)'>Remove</button>
-      </div>`;
-    }}).join('');
-  }} catch(e) {{ /* server not running — silently skip */ }}
-}}
-
-async function removeWatchlistItem(itemId, btn) {{
-  btn.textContent = '…';
-  await fetch(API+'/api/watchlist/'+encodeURIComponent(itemId), {{method:'DELETE'}});
-  loadWatchlist();
 }}
 
 // ── Related ───────────────────────────────────────────────────────────────
