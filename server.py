@@ -879,39 +879,58 @@ async def api_ask(body: AskIn):
             SELECT m.title, m.year FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
             WHERE ui.interaction='want' AND m.source='imdb' LIMIT 15
         """).fetchall()
+        top_books = conn.execute("""
+            SELECT m.title, m.author, ui.rating
+            FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+            WHERE ui.rating IS NOT NULL AND m.media_type='book' AND m.source='goodreads'
+            ORDER BY ui.rating DESC, m.title LIMIT 40
+        """).fetchall()
+        book_stats = conn.execute("""
+            SELECT COUNT(*) total, ROUND(AVG(ui.rating),2) avg
+            FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+            WHERE m.media_type='book' AND m.source='goodreads' AND ui.rating IS NOT NULL
+        """).fetchone()
+        top_podcasts = conn.execute("""
+            SELECT m.title, m.author, ui.rating
+            FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+            WHERE ui.rating IS NOT NULL AND m.media_type='podcast'
+            ORDER BY ui.rating DESC LIMIT 15
+        """).fetchall()
     finally:
         conn.close()
 
     def fmt(rows):
         return ", ".join(f"{r[0]} ({r[1] or '?'}) ★{r[-1]}" for r in rows[:20])
 
-    system = f"""You are the Oracle — a personal film and TV advisor with complete access to Waldo's taste data.
+    def fmt_books(rows):
+        return ", ".join(f"{r[0]} by {r[1] or '?'} ★{r[2]}" for r in rows[:30])
 
-TASTE PROFILE ({stats[0] if stats else '?'} films rated, avg ★{stats[1] if stats else '?'}/5):
+    system = f"""You are the Oracle — a personal entertainment advisor with complete access to Waldo's taste data across films, TV, books, and podcasts.
 
-Top-rated films (4-5★):
-{fmt(top_films)}
+FILMS ({stats[0] if stats else '?'} rated, avg ★{stats[1] if stats else '?'}/5):
+Top-rated (4-5★): {fmt(top_films)}
+Top directors: {", ".join(f"{r[0]} ({r[2]}★ avg, {r[1]} films)" for r in top_dirs)}
+Watchlist: {", ".join(f"{r[0]} ({r[1] or '?'})" for r in watchlist)}
 
-Top-rated shows (4-5★):
-{fmt(top_shows)}
+TV SHOWS (top-rated 4-5★): {fmt(top_shows)}
 
-Top directors (by avg rating, min 2 films):
-{", ".join(f"{r[0]} ({r[2]}★ avg, {r[1]} films)" for r in top_dirs)}
+BOOKS ({book_stats[0] if book_stats else 0} rated via Goodreads, avg ★{book_stats[1] if book_stats else '?'}/5):
+{fmt_books(top_books)}
 
-Watchlist (want to see):
-{", ".join(f"{r[0]} ({r[1] or '?'})" for r in watchlist)}
+PODCASTS (top-rated): {", ".join(f"{r[0]} ★{r[2]}" for r in top_podcasts)}
 
 KEY PATTERNS:
-- 5-star films: City of God, Fight Club, Eyes Wide Shut, The Usual Suspects, Three Colors Blue, Black Swan, Spider-Verse, LotR, Shawshank, Good Will Hunting, Les Misérables
-- Top directors: Todd Haynes, Kurosawa, Miyazaki (7 films), Coppola, Truffaut
-- 5-star shows: Black Mirror, Rick and Morty, Band of Brothers, Attack on Titan, Berlin Alexanderplatz, Cowboy Bebop
-- Strong genre affinities: Drama+Crime, Animation, Musical, Biography, Sci-Fi Thriller
+- 5-star films: City of God, Fight Club, Eyes Wide Shut, Three Colors Blue, Black Swan, Spider-Verse, LotR, Shawshank
+- 5-star books: Red Rising, Ender's Game, Children of Time, Hyperion series, Terry Pratchett (many), The Lies of Locke Lamora
+- 5-star shows: Black Mirror, Band of Brothers, Attack on Titan, Berlin Alexanderplatz, Cowboy Bebop
+- Book taste: sci-fi (Hyperion, Ender's Game, Children of Time), fantasy heists (Locke Lamora, Red Rising), Pratchett
+- Strong film affinities: Drama+Crime, Animation, Musical, Biography, Sci-Fi Thriller
 
 ANSWER STYLE:
-- Be specific — cite films from Waldo's actual history to justify your reasoning
+- Be specific — cite items from Waldo's actual history to justify your reasoning
 - Short and direct — no filler, no hedging
-- When recommending: give title, year, one reason tied to something he's already rated
-- IMDB score and streaming availability in DE is useful to mention when relevant"""
+- When recommending: give title, year/author, one reason tied to something already rated
+- For films: IMDB score and streaming availability in DE is useful when relevant"""
 
     isolation_flags = [
         "--tools", "", "--strict-mcp-config", "--setting-sources", "local",
