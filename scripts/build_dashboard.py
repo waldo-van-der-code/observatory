@@ -1318,7 +1318,7 @@ def render(conn) -> str:
     --accent-music:    #0d7e6b;
     --accent-patterns: #7e3a8a;
     --accent-recs:     #d4920a;
-    --primary-h: 96px; /* nav-links row (48px) + search bar row (48px) */
+    --primary-h: 104px; /* nav-links row (48px) + search bar row (56px) */
   }}
   *, *::before, *::after {{ box-sizing:border-box; }}
   body {{
