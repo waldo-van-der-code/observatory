@@ -43,11 +43,13 @@ test("// Regression OBS-041: B1/B2 — C2 logo position and nav width at 1440px"
   expect(logoBox, "pnav-logo not found").not.toBeNull();
   expect(logoBox!.x, `Logo x=${logoBox!.x} < 16`).toBeGreaterThanOrEqual(16);
 
-  // .wrap must exist and nav contents must be within 2px of .wrap edges
+  // .wrap must exist and nav content area must align with .wrap content area (both have 24px padding)
   const wrapBox = await page.locator(".wrap").first().boundingBox();
   expect(wrapBox, ".wrap not found").not.toBeNull();
+  const wrapPaddingLeft = await page.locator(".wrap").first().evaluate(el => parseFloat(getComputedStyle(el).paddingLeft));
   const navLinksLeft = await page.locator("#primary-nav .pnav-logo").first().boundingBox();
-  expect(Math.abs(navLinksLeft!.x - wrapBox!.x), "nav content left edge differs from .wrap by >2px").toBeLessThanOrEqual(2);
+  const wrapContentLeft = wrapBox!.x + wrapPaddingLeft;
+  expect(Math.abs(navLinksLeft!.x - wrapContentLeft), "nav content left edge differs from .wrap content left by >2px").toBeLessThanOrEqual(2);
 });
 
 // ── C3: Exactly one gold line in the header ───────────────────────────────────
@@ -59,16 +61,17 @@ test("// Regression OBS-041: B3 — C3 exactly one gold border-bottom in header"
 
   // Count gold border-bottom elements visible in the top 120px of the page
   const goldCount = await page.evaluate(() => {
-    const gold = /(?:#d4920a|var\(--gold\)|gold)/i;
     const elements = Array.from(document.querySelectorAll("*"));
     let count = 0;
     for (const el of elements) {
       const box = (el as HTMLElement).getBoundingClientRect();
+      // skip display:none or zero-size elements
+      if (box.width === 0 && box.height === 0) continue;
       if (box.top > 120) continue;
       const style = getComputedStyle(el);
       const bb = style.borderBottomColor;
-      // #d4920a or close gold colour
-      if (bb.includes("212, 146, 10") || bb.includes("d4920a")) count++;
+      // #d4920a = rgb(212, 146, 10)
+      if (bb.includes("212, 146, 10") || bb.includes("212,146,10")) count++;
     }
     return count;
   });

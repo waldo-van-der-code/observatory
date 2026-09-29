@@ -1382,6 +1382,7 @@ def render(conn) -> str:
     padding:20px;
     margin-bottom:20px;
     box-shadow:0 1px 4px rgba(26,22,18,0.06);
+    overflow-x:auto;
   }}
   .card {{
     background:var(--bg-card);
