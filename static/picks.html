@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Picks — Observatory</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet"></noscript>
 <link rel="stylesheet" href="/static/nav.css">
 <link rel="stylesheet" href="/static/detail.css">
 <style>
@@ -40,7 +41,7 @@
     min-height: 34px; transition: color .15s, border-color .15s; font-family: inherit;
   }
   .filter-pill:hover { color: var(--text); }
-  .filter-pill.active { color: var(--gold); border-color: var(--gold); }
+  .filter-pill.active { color: var(--text); border-color: var(--gold); font-weight: 700; }
 
   .rec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 
@@ -95,7 +96,7 @@
 <main class="wrap">
   <div class="page-eyebrow">Curated for you</div>
   <h1 class="page-title">What's next.</h1>
-  <p class="page-sub" id="picks-count">Loading recommendations…</p>
+  <p class="page-sub" id="picks-count" aria-live="polite" aria-atomic="true">Loading recommendations…</p>
 
   <div class="filter-bar" id="filter-bar">
     <button class="filter-pill active" data-media="" onclick="setFilter(this)">All</button>
@@ -182,8 +183,8 @@ function renderCard(item) {
     '<div class="card rec-card" role="button" tabindex="0"' +
     ' data-title="' + safeTitle + '" data-type="' + apiType + '"' +
     ' aria-label="Open details for ' + safeTitle + '"' +
-    ' onclick="searchAndShowDetail(\'' + safeTitle.replace(/'/g, "\\'") + '\',\'' + apiType + '\')"' +
-    ' onkeydown="if(event.key===\'Enter\'||event.key===\' \')searchAndShowDetail(\'' + safeTitle.replace(/'/g, "\\'") + '\',\'' + apiType + '\')">' +
+    ' onclick="openCardDetail(this,\'' + safeTitle.replace(/'/g, "\\'") + '\',\'' + apiType + '\')"' +
+    ' onkeydown="if(event.key===\'Enter\'||event.key===\' \')openCardDetail(this,\'' + safeTitle.replace(/'/g, "\\'") + '\',\'' + apiType + '\')">' +
     '<div class="rec-header">' +
     '<span class="rec-badge">' + badge + '</span>' +
     '<div class="rec-title-block"><strong>' + escHtml(item.title) + '</strong>' +
@@ -207,6 +208,16 @@ function escHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function openCardDetail(card, title, type) {
+  card.style.opacity = '0.6';
+  card.style.cursor = 'wait';
+  const restore = () => { card.style.opacity = ''; card.style.cursor = ''; };
+  const timer = setTimeout(restore, 3000);
+  const orig = window._detailOpenCb;
+  window._detailOpenCb = () => { clearTimeout(timer); restore(); if (orig) orig(); };
+  searchAndShowDetail(title, type);
 }
 
 async function markRec(id, status, btn) {
