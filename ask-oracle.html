@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png">
+  <link rel="stylesheet" href="/static/nav.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -16,18 +17,6 @@
       --gold: #d4920a;
     }
     body { font-family: 'Inter', sans-serif; background: var(--cream); color: var(--ink); min-height: 100vh; display: flex; flex-direction: column; }
-
-    /* Header */
-    .header {
-      display: flex; align-items: center; gap: 1rem; padding: 0 1.5rem;
-      background: var(--cobalt); border-bottom: 4px solid var(--gold);
-      min-height: 60px; position: sticky; top: 0; z-index: 100;
-    }
-    .logo { font-family: 'Lora', serif; font-size: 1.1rem; font-weight: 600; color: #fff; text-decoration: none; letter-spacing: .04em; flex: 1; }
-    .logo span { color: var(--gold); }
-    .nav a { padding: .4rem .85rem; border: 2px solid rgba(255,255,255,.2); border-radius: 2px; font-size: .72rem; font-weight: 700; color: rgba(255,255,255,.65); text-decoration: none; letter-spacing: .06em; text-transform: uppercase; transition: all .15s; margin-left: .2rem; }
-    .nav a:hover { color: #fff; border-color: rgba(255,255,255,.5); }
-    .nav a.active { background: var(--gold); color: var(--ink); border-color: var(--gold); }
 
     /* Layout */
     .page { max-width: 780px; margin: 0 auto; padding: 2rem 1.5rem 4rem; flex: 1; display: flex; flex-direction: column; gap: 1.5rem; }
@@ -90,21 +79,14 @@
     .err-banner { background: rgba(201,76,26,.08); border: 1.5px solid rgba(201,76,26,.3); border-radius: 3px; padding: .6rem .9rem; font-size: .8rem; color: var(--rust); }
 
     @media (max-width: 600px) {
-      .nav { display: none; }
       .page { padding: 1.25rem 1rem 3rem; }
     }
   </style>
 </head>
 <body>
 
-<header class="header">
-  <a href="/" class="logo">Observatory <span>✦</span></a>
-  <nav class="nav">
-    <a href="/">Dashboard</a>
-    <a href="/brain">Taste Map</a>
-    <a href="/ask" class="active">Ask Oracle</a>
-  </nav>
-</header>
+<script src="/static/nav.js" defer></script>
+<noscript><nav id="primary-nav" aria-label="Main navigation"><div class="nav-inner"><a class="pnav-logo" href="/">Observatory <span>✦</span></a><a class="pnav-link" href="/">Dashboard</a><a class="pnav-link" href="/picks">Picks</a><a class="pnav-link" href="/brain">Taste Map</a><a class="pnav-link active oracle" href="/ask">✦ Ask Oracle</a></div></nav></noscript>
 
 <div class="page">
   <div class="page-head">

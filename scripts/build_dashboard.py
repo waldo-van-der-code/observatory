@@ -1341,6 +1341,7 @@ def render(conn) -> str:
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>My ears, my eyes and me</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎷</text></svg>">
+<link rel="stylesheet" href="/static/nav.css">
 <style>
   :root {{
     /* NASA Visions of the Future — cream + bold editorial */
@@ -1349,6 +1350,7 @@ def render(conn) -> str:
     --bg-card: #f5f0e8;
     --border: rgba(26,22,18,0.12);
     --border-dark: rgba(26,22,18,0.25);
+    --border-light: rgba(26,22,18,0.15);
     --text: #1a1612;
     --text-dim: #6b5f57;
     --rust:   #c94c1a;
@@ -1433,29 +1435,11 @@ def render(conn) -> str:
   td, th {{ padding:10px; text-align:left; border-bottom:1px solid var(--border); font-size:13px; }}
   th {{ color:var(--text-dim); font-weight:500; }}
   li {{ margin-bottom:6px; font-size:13px; color:var(--text-dim); line-height:1.5; }}
-  .grid-2 {{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }}
+  .grid-2 {{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; }}
   @media(max-width:700px) {{ .grid-2 {{ grid-template-columns:1fr; }} }}
-  /* Search bar */
-  /* Primary nav bar */
-  #primary-nav {{ position:sticky; top:0; z-index:101; background:var(--cobalt); border-bottom:3px solid var(--gold); height:var(--primary-h); display:flex; align-items:center; padding:0 24px; margin:0 -24px; gap:0; }}
-  #primary-nav .pnav-logo {{ font-family:'Lora',serif; font-size:16px; font-weight:700; color:#fff; text-decoration:none; margin-right:auto; letter-spacing:.01em; white-space:nowrap; }}
-  #primary-nav .pnav-logo span {{ color:var(--gold); }}
-  #primary-nav .pnav-link {{ padding:0 14px; height:var(--primary-h); display:inline-flex; align-items:center; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:rgba(255,255,255,.65); text-decoration:none; border-bottom:3px solid transparent; margin-bottom:-3px; transition:color .15s, border-color .15s; white-space:nowrap; }}
-  #primary-nav .pnav-link:hover {{ color:#fff; }}
-  #primary-nav .pnav-link.active {{ color:#fff; border-bottom-color:rgba(255,255,255,.8); }}
-  #primary-nav .pnav-link.oracle {{ color:var(--gold); }}
-  #primary-nav .pnav-link.oracle:hover {{ color:#fff; }}
-  #primary-nav .pnav-link:focus-visible {{ outline:2px solid var(--gold); outline-offset:2px; }}
-  @media(max-width:700px) {{
-    #primary-nav .pnav-link {{ padding:0 10px; font-size:10px; }}
-    #primary-nav .pnav-logo {{ font-size:14px; }}
-  }}
-  @media(max-width:480px) {{
-    #primary-nav .pnav-link {{ display:none; }}
-    #primary-nav .pnav-link.oracle, #primary-nav .pnav-link[href="/brain"] {{ display:inline-flex; }}
-  }}
-  #search-bar {{ position:sticky; top:var(--primary-h); z-index:100; background:var(--cobalt); border-bottom:3px solid var(--gold); padding:10px 24px; margin:0 -24px 0; }}
-  .search-row {{ max-width:1000px; margin:0 auto; display:flex; gap:8px; align-items:center; }}
+  /* Search bar — full-width outside .wrap, one gold line at bottom */
+  #search-bar {{ position:sticky; top:var(--primary-h); z-index:100; background:var(--cobalt); border-bottom:3px solid var(--gold); padding:10px 0; }}
+  .search-row {{ max-width:1000px; margin:0 auto; padding:0 24px; display:flex; gap:8px; align-items:center; }}
   #search-input {{ flex:1; background:rgba(255,255,255,0.15); border:2px solid rgba(255,255,255,0.3); border-radius:2px; padding:10px 14px; color:#fff; font-size:14px; outline:none; min-height:44px; transition:border-color .2s; }}
   #search-input:focus {{ border-color:#fff; background:rgba(255,255,255,0.22); }}
   #search-input::placeholder {{ color:rgba(255,255,255,0.55); }}
@@ -1475,10 +1459,10 @@ def render(conn) -> str:
   .rec-pager-dot.active {{ background:var(--gold); }}
   #home-btn {{ display:none; background:none; border:2px solid rgba(255,255,255,0.3); border-radius:2px; padding:10px 14px; color:rgba(255,255,255,0.7); font-size:13px; cursor:pointer; white-space:nowrap; min-height:44px; transition:all .15s; }}
   #home-btn:hover {{ color:#fff; border-color:#fff; }}
-  /* Section nav — scrollable media-type tabs, sits below primary nav + search */
-  #section-nav {{ position:sticky; top:calc(var(--primary-h) + var(--search-h)); z-index:99; background:var(--bg); border-bottom:2px solid var(--border-dark); padding:0 24px; margin:0 -24px 24px; overflow-x:auto; scrollbar-width:none; }}
+  /* Section nav — full-width, outside .wrap, sits below primary nav + search */
+  #section-nav {{ position:sticky; top:calc(var(--primary-h) + var(--search-h)); z-index:99; background:var(--bg); border-bottom:2px solid var(--border-dark); overflow-x:auto; scrollbar-width:none; }}
   #section-nav::-webkit-scrollbar {{ display:none; }}
-  .snav-inner {{ max-width:1000px; margin:0 auto; display:flex; gap:0; padding:0; }}
+  .snav-inner {{ max-width:1000px; margin:0 auto; display:flex; gap:0; padding:0 24px; }}
   .snav-link {{ padding:10px 16px; font-size:11px; font-weight:700; color:var(--text-dim); text-decoration:none; white-space:nowrap; transition:color .15s, border-bottom .15s; cursor:pointer; border-bottom:3px solid transparent; letter-spacing:.08em; text-transform:uppercase; display:inline-block; }}
   .snav-link:hover {{ color:var(--text); }}
   .snav-link.active {{ color:var(--rust); border-bottom-color:var(--rust); }}
@@ -1632,7 +1616,7 @@ def render(conn) -> str:
   }}
 </style>
 </head>
-<body>
+<body class="has-search-bar">
 
 <!-- Detail overlay (slide-in panel) -->
 <div id="detail-overlay">
@@ -1646,18 +1630,10 @@ def render(conn) -> str:
   </div>
 </div>
 
-<!-- Primary nav bar (sticky, always visible) -->
-<nav id="primary-nav" aria-label="Main navigation">
-  <a class="pnav-logo" href="/">Observatory <span>✦</span></a>
-  <a class="pnav-link active" href="/" onclick="return false;">Dashboard</a>
-  <a class="pnav-link" href="#sec-recs" onclick="document.getElementById('sec-recs').scrollIntoView({{behavior:'smooth'}});return false;">Picks</a>
-  <a class="pnav-link" href="/brain">Taste Map</a>
-  <a class="pnav-link oracle" href="/ask">✦ Ask Oracle</a>
-</nav>
+<script src="/static/nav.js" defer></script>
+<noscript><nav id="primary-nav" aria-label="Main navigation"><div class="nav-inner"><a class="pnav-logo" href="/">Observatory <span>✦</span></a><a class="pnav-link active" href="/">Dashboard</a><a class="pnav-link" href="/picks">Picks</a><a class="pnav-link" href="/brain">Taste Map</a><a class="pnav-link oracle" href="/ask">✦ Ask Oracle</a></div></nav></noscript>
 
-<div class="wrap">
-
-<!-- Search bar -->
+<!-- Search bar (outside .wrap — full-width) -->
 <div id="search-bar">
   <div class="search-row">
     <button id="home-btn" onclick="goHome()" aria-label="Back to dashboard">← Dashboard</button>
@@ -1676,7 +1652,7 @@ def render(conn) -> str:
   </div>
 </div>
 
-<!-- Section sub-nav (media type anchors, dashboard only) -->
+<!-- Section sub-nav (outside .wrap — full-width) -->
 <div id="section-nav" role="navigation" aria-label="Browse sections">
   <div class="snav-inner">
     <a class="snav-link" href="#sec-films">Films</a>
@@ -1690,6 +1666,8 @@ def render(conn) -> str:
     <a class="snav-link" href="#sec-patterns">Patterns</a>
   </div>
 </div>
+
+<main class="wrap">
 
 <!-- Search results panel -->
 <div id="search-panel" style="display:none;margin-bottom:20px">
@@ -2153,7 +2131,7 @@ def render(conn) -> str:
   </div>
 </div>
 
-</div><!-- /.wrap -->
+</main><!-- /.wrap -->
 
 <script>
 function switchTab(name) {{
@@ -2317,7 +2295,6 @@ function initSectionNav() {{
     if (link) links[id] = link;
   }});
   if (!Object.keys(links).length) return;
-  Object.values(links)[0].classList.add('active');
   const observer = new IntersectionObserver(entries => {{
     entries.forEach(entry => {{
       const link = links[entry.target.id];
