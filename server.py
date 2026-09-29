@@ -62,6 +62,16 @@ def index():
     return FileResponse(DASHBOARD, media_type="text/html")
 
 
+FAVICON = Path(__file__).parent / "static" / "favicon.ico"
+
+
+@app.get("/favicon.ico", response_class=FileResponse)
+def favicon():
+    if FAVICON.exists():
+        return FileResponse(FAVICON, media_type="image/x-icon")
+    raise HTTPException(404, "favicon.ico not found")
+
+
 # ── Search ────────────────────────────────────────────────────────────────────
 
 def _get_user_state(conn) -> tuple[set[str], dict[str, float | None]]:
