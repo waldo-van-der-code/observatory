@@ -70,8 +70,12 @@ test("// Regression OBS-041: B3 — C3 exactly one gold border-bottom in header"
       if (box.top > 120) continue;
       const style = getComputedStyle(el);
       const bb = style.borderBottomColor;
-      // #d4920a = rgb(212, 146, 10)
-      if (bb.includes("212, 146, 10") || bb.includes("212,146,10")) count++;
+      // #d4920a = rgb(212, 146, 10) — must also have a visible border (style != none, width > 0)
+      if (
+        (bb.includes("212, 146, 10") || bb.includes("212,146,10")) &&
+        style.borderBottomStyle !== "none" &&
+        parseFloat(style.borderBottomWidth) > 0
+      ) count++;
     }
     return count;
   });
