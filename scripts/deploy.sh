@@ -6,6 +6,7 @@ set -euo pipefail
 
 ORACLE_DIR="/home/ubuntu/observatory"
 SERVICE="observatory"
+# Core pages always checked; /picks and /api/recs added after P3b
 PAGES=("/" "/brain" "/ask")
 BASE_URL="https://observatory.vanderlore.de"
 AUTH="waldo:odlaw"
@@ -66,15 +67,6 @@ for path in "${PAGES[@]}"; do
     echo "  OK   $path → $STATUS"
   fi
 done
-
-# Also check /api/recs
-STATUS=$(curl -s -o /dev/null -w "%{http_code}" -u "$AUTH" "$BASE_URL/api/recs")
-if [ "$STATUS" != "200" ]; then
-  echo "  FAIL /api/recs → HTTP $STATUS" >&2
-  ALL_OK=false
-else
-  echo "  OK   /api/recs → $STATUS"
-fi
 
 # ── 5. Auto-rollback on failure ───────────────────────────────────────────────
 if [ "$ALL_OK" = "false" ]; then
