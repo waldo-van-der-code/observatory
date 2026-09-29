@@ -65,8 +65,10 @@
     color: var(--text-dim); letter-spacing: .03em; font-family: inherit;
   }
   .action-btn:hover { color: var(--text); border-color: var(--text-dim); }
+  .action-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
   .action-btn.dismiss:hover { color: var(--rust); border-color: rgba(201,76,26,0.4); }
   .action-btn.seen:hover { color: var(--teal); border-color: rgba(13,126,107,0.4); }
+  .rec-card:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
   .picks-status { text-align: center; padding: 56px 24px; color: var(--text-dim); }
 
@@ -177,8 +179,11 @@ function renderCard(item) {
     ? '<p class="rec-friction">⚠️ ' + escHtml(item.potential_issue) + '</p>'
     : '';
   return (
-    '<div class="card rec-card" data-title="' + safeTitle + '" data-type="' + apiType + '"' +
-    ' onclick="searchAndShowDetail(\'' + safeTitle.replace(/'/g, "\\'") + '\',\'' + apiType + '\')">' +
+    '<div class="card rec-card" role="button" tabindex="0"' +
+    ' data-title="' + safeTitle + '" data-type="' + apiType + '"' +
+    ' aria-label="Open details for ' + safeTitle + '"' +
+    ' onclick="searchAndShowDetail(\'' + safeTitle.replace(/'/g, "\\'") + '\',\'' + apiType + '\')"' +
+    ' onkeydown="if(event.key===\'Enter\'||event.key===\' \')searchAndShowDetail(\'' + safeTitle.replace(/'/g, "\\'") + '\',\'' + apiType + '\')">' +
     '<div class="rec-header">' +
     '<span class="rec-badge">' + badge + '</span>' +
     '<div class="rec-title-block"><strong>' + escHtml(item.title) + '</strong>' +
