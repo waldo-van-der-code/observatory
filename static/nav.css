@@ -55,6 +55,7 @@
 }
 @media (max-width: 480px) {
   /* On small phones, only show Oracle and Brain — the rest scroll from Dashboard */
+  /* TODO P3b: add .pnav-link[href="/picks"] here once /picks is a standalone page */
   .pnav-link { display: none; }
   .pnav-link.oracle,
   .pnav-link[href="/brain"] { display: inline-flex; }
