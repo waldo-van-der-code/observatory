@@ -6,6 +6,7 @@
 <title>✦ Your Taste Map</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/nav.css">
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -224,43 +225,12 @@
   }
   #loading-overlay.visible { display: flex; }
   #loading-overlay span { font-family: 'Cinzel', serif; color: var(--text); font-size: 1.1rem; letter-spacing: 0.1em; }
-  /* Primary nav */
-  #primary-nav {
-    position: sticky; top: 0; z-index: 200;
-    background: #1a2e52; border-bottom: 3px solid #d4920a;
-    height: 48px; display: flex; align-items: center;
-    padding: 0 20px; gap: 0;
-  }
-  #primary-nav .pnav-logo {
-    font-family: 'Cinzel', serif; font-size: 15px; font-weight: 600;
-    color: #f5e8c8; text-decoration: none; margin-right: auto; white-space: nowrap;
-  }
-  #primary-nav .pnav-logo span { color: #d4920a; }
-  #primary-nav .pnav-link {
-    padding: 0 14px; height: 48px; display: inline-flex; align-items: center;
-    font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
-    color: rgba(245,232,200,.6); text-decoration: none;
-    border-bottom: 3px solid transparent; margin-bottom: -3px;
-    transition: color .15s, border-color .15s; white-space: nowrap;
-  }
-  #primary-nav .pnav-link:hover { color: #f5e8c8; }
-  #primary-nav .pnav-link.active { color: #f5e8c8; border-bottom-color: #d4920a; }
-  #primary-nav .pnav-link.oracle { color: #d4920a; }
-  @media(max-width:600px) {
-    #primary-nav .pnav-link { padding: 0 8px; font-size: 11px; }
-  }
 </style>
 </head>
 <body>
 
-<!-- Primary nav -->
-<nav id="primary-nav" aria-label="Main navigation">
-  <a class="pnav-logo" href="/">Observatory <span>✦</span></a>
-  <a class="pnav-link" href="/">Dashboard</a>
-  <a class="pnav-link" href="/#sec-recs">Picks</a>
-  <a class="pnav-link active" href="/brain">Taste Map</a>
-  <a class="pnav-link oracle" href="/ask">✦ Ask Oracle</a>
-</nav>
+<script src="/static/nav.js" defer></script>
+<noscript><nav id="primary-nav" aria-label="Main navigation"><div class="nav-inner"><a class="pnav-logo" href="/">Observatory <span>✦</span></a><a class="pnav-link" href="/">Dashboard</a><a class="pnav-link" href="/picks">Picks</a><a class="pnav-link active" href="/brain">Taste Map</a><a class="pnav-link oracle" href="/ask">✦ Ask Oracle</a></div></nav></noscript>
 
 <header>
   <h1>✦ Your Taste Map · 2014–2026</h1>
