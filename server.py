@@ -873,6 +873,8 @@ def api_recs(
             issue = issue[len("⚠️"):].strip()
         elif issue.startswith("⚠"):
             issue = issue[1:].strip()
+        if issue.lower().startswith("none"):
+            issue = ""
         items.append({
             "id": r["id"],
             "title": r["title"],
