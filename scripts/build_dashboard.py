@@ -1443,6 +1443,17 @@ def render(conn) -> str:
   #search-type {{ background:rgba(255,255,255,0.12); border:2px solid rgba(255,255,255,0.25); border-radius:2px; padding:10px; color:#fff; font-size:13px; min-height:44px; }}
   #search-btn {{ background:var(--gold); border:none; border-radius:2px; padding:10px 18px; color:var(--text); font-size:13px; cursor:pointer; white-space:nowrap; min-height:44px; font-weight:700; transition:opacity .15s; letter-spacing:.05em; text-transform:uppercase; }}
   #search-btn:hover {{ opacity:.85; }}
+  #search-btn.loading {{ pointer-events:none; opacity:.7; }}
+  .search-spinner {{ display:none; width:18px; height:18px; border:2px solid rgba(255,255,255,.35); border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite; flex-shrink:0; margin-right:-4px; }}
+  @keyframes spin {{ to {{ transform:rotate(360deg) }} }}
+  .page-nav {{ display:flex; align-items:center; gap:10px; justify-content:center; margin-top:16px; }}
+  .page-btn {{ background:var(--bg); border:1.5px solid var(--border-dark); border-radius:2px; padding:6px 16px; font-size:12px; font-weight:700; cursor:pointer; color:var(--text); letter-spacing:.05em; text-transform:uppercase; font-family:inherit; transition:border-color .15s; }}
+  .page-btn:hover {{ border-color:var(--text); }}
+  .page-btn:disabled {{ opacity:.35; cursor:not-allowed; }}
+  .page-label {{ font-size:12px; color:var(--text-dim); }}
+  .rec-pager {{ display:flex; align-items:center; gap:12px; justify-content:center; margin-top:16px; padding-top:14px; border-top:1.5px solid var(--border); }}
+  .rec-pager-dot {{ width:7px; height:7px; border-radius:50%; background:var(--border-dark); cursor:pointer; transition:background .15s; }}
+  .rec-pager-dot.active {{ background:var(--gold); }}
   #home-btn {{ display:none; background:none; border:2px solid rgba(255,255,255,0.3); border-radius:2px; padding:10px 14px; color:rgba(255,255,255,0.7); font-size:13px; cursor:pointer; white-space:nowrap; min-height:44px; transition:all .15s; }}
   #home-btn:hover {{ color:#fff; border-color:#fff; }}
   /* Section nav — top measured by JS at runtime */
@@ -1634,6 +1645,7 @@ def render(conn) -> str:
       <option value="music">🎵 Music</option>
       <option value="podcast">🎙️ Podcasts</option>
     </select>
+    <div class="search-spinner" id="search-spinner"></div>
     <button id="search-btn" onclick="doSearch()">Search</button>
   </div>
 </div>
@@ -1653,6 +1665,7 @@ def render(conn) -> str:
     <a class="snav-link" href="#sec-patterns">Patterns</a>
     <a class="snav-link" href="#sec-recs">Picks</a>
     <a class="snav-link external" href="/culture/map">Taste Map</a>
+    <a class="snav-link external" href="/ask" style="color:var(--gold);border-bottom-color:transparent">✦ Ask Oracle</a>
   </div>
 </div>
 
@@ -1670,6 +1683,11 @@ def render(conn) -> str:
     </div>
   </div>
   <div id="search-results-list"></div>
+  <div class="page-nav" id="search-page-nav" style="display:none">
+    <button class="page-btn" id="page-prev" onclick="goSearchPage(-1)" disabled>← Prev</button>
+    <span class="page-label" id="page-label">Page 1</span>
+    <button class="page-btn" id="page-next" onclick="goSearchPage(1)">Next →</button>
+  </div>
 </div>
 
 <!-- Related panel -->
@@ -2234,6 +2252,7 @@ document.addEventListener('DOMContentLoaded', () => {{
   loadWatchlist();
   initSectionNav();
   updateRecsCount();
+  initRecPager();
   initCollapsibles();
 }});
 
@@ -2315,6 +2334,67 @@ function refreshRecs() {{
     const starRow = document.getElementById('stars-'+id);
     if (starRow) starRow.style.display = 'none';
   }});
+  if (document.getElementById('rec-pager')) showRecPage(0);
+  updateRecsCount();
+}}
+
+// ── Rec pager ──────────────────────────────────────────────────────────────
+const REC_PAGE_SIZE = 4;
+let _recPage = 0;
+
+function initRecPager() {{
+  const cards = Array.from(document.querySelectorAll('.rec-card'));
+  if (cards.length <= REC_PAGE_SIZE) return;
+
+  const panel = document.getElementById('recs-panel');
+  const numPages = Math.ceil(cards.length / REC_PAGE_SIZE);
+
+  const pagerEl = document.createElement('div');
+  pagerEl.className = 'rec-pager';
+  pagerEl.id = 'rec-pager';
+
+  const prev = document.createElement('button');
+  prev.className = 'page-btn'; prev.id = 'rec-prev'; prev.textContent = '←';
+  prev.onclick = () => showRecPage(_recPage - 1);
+
+  const dots = document.createElement('div');
+  dots.style.cssText = 'display:flex;gap:6px;align-items:center';
+  for (let i = 0; i < numPages; i++) {{
+    const d = document.createElement('div');
+    d.className = 'rec-pager-dot' + (i === 0 ? ' active' : '');
+    d.dataset.page = i;
+    d.onclick = () => showRecPage(i);
+    dots.appendChild(d);
+  }}
+
+  const next = document.createElement('button');
+  next.className = 'page-btn'; next.id = 'rec-next'; next.textContent = '→';
+  next.onclick = () => showRecPage(_recPage + 1);
+
+  pagerEl.appendChild(prev);
+  pagerEl.appendChild(dots);
+  pagerEl.appendChild(next);
+  panel.appendChild(pagerEl);
+
+  showRecPage(0);
+}}
+
+function showRecPage(page) {{
+  const cards = Array.from(document.querySelectorAll('.rec-card'));
+  const numPages = Math.ceil(cards.length / REC_PAGE_SIZE);
+  _recPage = Math.max(0, Math.min(page, numPages - 1));
+
+  cards.forEach((c, i) => {{
+    const inPage = i >= _recPage * REC_PAGE_SIZE && i < (_recPage + 1) * REC_PAGE_SIZE;
+    c.style.display = inPage ? '' : 'none';
+  }});
+
+  document.querySelectorAll('.rec-pager-dot').forEach(d => {{
+    d.classList.toggle('active', Number(d.dataset.page) === _recPage);
+  }});
+
+  document.getElementById('rec-prev').disabled = _recPage === 0;
+  document.getElementById('rec-next').disabled = _recPage >= numPages - 1;
   updateRecsCount();
 }}
 
@@ -2322,33 +2402,74 @@ function refreshRecs() {{
 const API = window.location.protocol === 'file:' ? 'http://localhost:8000' : '';
 
 let _lastResults = [];
+let _searchPage = 1;
+let _searchHasMore = false;
+let _activeFilter = 'all';
 
 // ── Search ─────────────────────────────────────────────────────────────────
-async function doSearch() {{
+async function doSearch(page) {{
   const q = document.getElementById('search-input').value.trim();
   if (!q) return;
+  if (page === undefined) page = 1;
+  _searchPage = page;
   const type = document.getElementById('search-type').value;
+
+  const spinner = document.getElementById('search-spinner');
+  const btn = document.getElementById('search-btn');
+  spinner.style.display = 'block';
+  btn.classList.add('loading');
+  btn.textContent = '';
+
   document.getElementById('search-status').textContent = 'Searching…';
   document.getElementById('search-panel').style.display = 'block';
   document.getElementById('search-results-list').innerHTML = '';
+  document.getElementById('search-page-nav').style.display = 'none';
   document.getElementById('home-btn').style.display = 'inline-flex';
   document.getElementById('filter-pills').style.display = 'none';
+
   try {{
-    const r = await fetch(`${{API}}/api/search?q=${{encodeURIComponent(q)}}&type=${{type}}`);
-    _lastResults = await r.json();
-    // Reset filter pills to All
+    const r = await fetch(`${{API}}/api/search?q=${{encodeURIComponent(q)}}&type=${{type}}&page=${{page}}`);
+    const data = await r.json();
+    _lastResults = data.results || data;
+    _searchHasMore = data.has_more || false;
+
+    _activeFilter = 'all';
     document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
     document.querySelector('.filter-pill').classList.add('active');
-    // Only show pills if multiple types present
     const types = new Set(_lastResults.map(i => i.media_type));
     if (types.size > 1) document.getElementById('filter-pills').style.display = 'flex';
     renderFiltered('all', _lastResults, q);
+    updatePageNav();
   }} catch(e) {{
     document.getElementById('search-status').textContent = 'Search failed — is the server running?';
+  }} finally {{
+    spinner.style.display = 'none';
+    btn.classList.remove('loading');
+    btn.textContent = 'Search';
   }}
 }}
 
+function updatePageNav() {{
+  const nav = document.getElementById('search-page-nav');
+  if (_searchPage > 1 || _searchHasMore) {{
+    nav.style.display = 'flex';
+    document.getElementById('page-prev').disabled = _searchPage <= 1;
+    document.getElementById('page-next').disabled = !_searchHasMore;
+    document.getElementById('page-label').textContent = `Page ${{_searchPage}}`;
+  }} else {{
+    nav.style.display = 'none';
+  }}
+}}
+
+function goSearchPage(delta) {{
+  const newPage = _searchPage + delta;
+  if (newPage < 1) return;
+  doSearch(newPage);
+  document.getElementById('search-panel').scrollIntoView({{behavior:'smooth', block:'start'}});
+}}
+
 function renderFiltered(type, items, q) {{
+  _activeFilter = type;
   const filtered = type === 'all' ? items : items.filter(i => i.media_type === type);
   const label = q || document.getElementById('search-input').value.trim();
   document.getElementById('search-status').textContent =
@@ -2371,7 +2492,10 @@ function closeSearch() {{
   document.getElementById('search-status').textContent = '';
   document.getElementById('search-results-list').innerHTML = '';
   document.getElementById('filter-pills').style.display = 'none';
+  document.getElementById('search-page-nav').style.display = 'none';
   _lastResults = [];
+  _searchPage = 1;
+  _searchHasMore = false;
 }}
 
 function goHome() {{

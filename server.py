@@ -81,6 +81,7 @@ def _get_user_state(conn) -> tuple[set[str], dict[str, float | None]]:
 async def api_search(
     q: str = Query(..., min_length=1),
     type: str = Query("all"),
+    page: int = Query(1, ge=1, le=20),
 ):
     if type not in ("all", "film", "tv", "book", "music", "podcast"):
         raise HTTPException(400, "type must be all | film | tv | book | music | podcast")
@@ -91,13 +92,16 @@ async def api_search(
     finally:
         conn.close()
 
-    results = await search(q, media_type=type, existing_ids=set())
+    results = await search(q, media_type=type, existing_ids=set(), page=page)
 
     for item in results:
         item["watchlist"] = item["id"] in wl_ids
         item["rating"] = ratings.get(item["id"])
 
-    return JSONResponse(results)
+    # has_more: if we got a full page of results from TMDB (20), there's likely a next page
+    has_more = len([r for r in results if r.get("source") == "tmdb"]) >= 20
+
+    return JSONResponse({"results": results, "page": page, "has_more": has_more})
 
 
 # ── Write: upsert item ────────────────────────────────────────────────────────

@@ -48,12 +48,13 @@ async def _fetch_tmdb_imdb_id(client: httpx.AsyncClient, api_key: str,
 
 
 async def _search_tmdb(client: httpx.AsyncClient, api_key: str, query: str,
-                        media_type: str, existing_ids: set[str]) -> list[dict]:
+                        media_type: str, existing_ids: set[str],
+                        page: int = 1) -> list[dict]:
     if not api_key:
         return []
 
     genre_map = await _fetch_tmdb_genre_map(client, api_key)
-    params: dict[str, Any] = {"api_key": api_key, "query": query, "page": 1}
+    params: dict[str, Any] = {"api_key": api_key, "query": query, "page": max(1, page)}
 
     if media_type == "film":
         endpoint, kinds = f"{TMDB_BASE}/search/movie", {"movie"}
@@ -66,7 +67,7 @@ async def _search_tmdb(client: httpx.AsyncClient, api_key: str, query: str,
     if r.status_code != 200:
         return []
 
-    items = r.json().get("results", [])[:6]
+    items = r.json().get("results", [])[:20]
     results = []
     for it in items:
         kind = it.get("media_type", "movie" if media_type == "film" else
@@ -237,7 +238,8 @@ async def _search_itunes_podcast(client: httpx.AsyncClient, query: str,
 
 
 async def search(query: str, media_type: str = "all",
-                 existing_ids: set[str] | None = None) -> list[dict]:
+                 existing_ids: set[str] | None = None,
+                 page: int = 1) -> list[dict]:
     """Fan out to TMDB, Open Library, MusicBrainz, and iTunes in parallel."""
     if existing_ids is None:
         existing_ids = set()
@@ -248,7 +250,7 @@ async def search(query: str, media_type: str = "all",
     async with httpx.AsyncClient(timeout=timeout) as client:
         tasks = []
         if media_type in ("all", "film", "tv"):
-            tasks.append(_search_tmdb(client, api_key, query, media_type, existing_ids))
+            tasks.append(_search_tmdb(client, api_key, query, media_type, existing_ids, page=page))
         if media_type in ("all", "book"):
             tasks.append(_search_openlibrary(client, query, existing_ids))
         if media_type in ("music",):
