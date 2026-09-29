@@ -848,7 +848,7 @@ def api_recs(
             SELECT id, title, author_or_director, media_type, reason,
                    potential_issue, confidence, status, generated_at
             FROM recommendations
-            WHERE status IS NULL OR status = ''
+            WHERE (status IS NULL OR status NOT IN ('seen', 'dismissed'))
         """
         params: list = []
         if media:
@@ -894,7 +894,7 @@ class RecStatusIn(BaseModel):
 
 @app.post("/api/recs/{rec_id}")
 def api_recs_update(rec_id: int, body: RecStatusIn):
-    allowed = {"seen", "dismissed", "want", ""}
+    allowed = {"seen", "dismissed", "want", "pending", ""}
     if body.status not in allowed:
         raise HTTPException(400, f"status must be one of: {allowed}")
     conn = get_conn()
