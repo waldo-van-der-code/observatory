@@ -1,0 +1,65 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "/Users/waldo.vanderhaeghen/Documents/AI-projects-personal/Fun!/entertainment/ask-oracle.html"
+        ],
+        "createdAt": "2026-09-24T13:20:23.718Z",
+        "reason": "No one-sided accent border in this file; header border-bottom is structural, chat-box uses full 2px border"
+      },
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-09-24T13:20:23.741Z",
+        "reason": "Intentional consistency with observatory project design system; used throughout dashboard.html and docs/"
+      },
+      {
+        "rule": "cream-palette",
+        "value": "*",
+        "files": [
+          "/Users/waldo.vanderhaeghen/Documents/AI-projects-personal/Fun!/entertainment/ask-oracle.html"
+        ],
+        "createdAt": "2026-09-24T13:20:23.785Z",
+        "reason": "Intentional match to observatory design system palette; same cream used across all observatory pages"
+      },
+      {
+        "rule": "pulsing-dot",
+        "value": "*",
+        "files": [
+          "/Users/waldo.vanderhaeghen/Documents/AI-projects-personal/Fun!/entertainment/ask-oracle.html"
+        ],
+        "createdAt": "2026-09-24T13:20:23.800Z",
+        "reason": "Dot loader animates only during active API call (sendQuestion sets disabled, loader added/removed around fetch); tied to live changing data"
+      },
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "brain.html"
+        ],
+        "createdAt": "2026-09-29T22:21:51.392Z"
+      },
+      {
+        "rule": "wide-tracking",
+        "value": "*",
+        "files": [
+          "brain.html"
+        ],
+        "createdAt": "2026-09-29T22:21:52.475Z"
+      },
+      {
+        "rule": "cream-palette",
+        "value": "*",
+        "files": [
+          "static/picks.html"
+        ],
+        "createdAt": "2026-09-29T22:21:53.316Z"
+      }
+    ]
+  }
+}
