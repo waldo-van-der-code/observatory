@@ -48,3 +48,6 @@ test-results/
 # Local draft files
 *-draft.md
 _local/
+
+# Local shared-agent checkpoints
+.agent-state/

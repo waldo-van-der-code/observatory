@@ -894,7 +894,34 @@ async def api_ask(body: AskIn):
             SELECT m.title, m.author, ui.rating
             FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
             WHERE ui.rating IS NOT NULL AND m.media_type='podcast'
-            ORDER BY ui.rating DESC LIMIT 15
+            ORDER BY ui.rating DESC LIMIT 25
+        """).fetchall()
+        netflix_films = conn.execute("""
+            SELECT m.title, ui.rating
+            FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+            WHERE m.source='netflix' AND ui.rating IS NOT NULL AND m.media_type='film'
+            ORDER BY ui.rating DESC LIMIT 25
+        """).fetchall()
+        netflix_shows = conn.execute("""
+            SELECT m.title, ui.rating
+            FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+            WHERE m.source='netflix' AND ui.rating IS NOT NULL AND m.media_type='tv_show'
+            ORDER BY ui.rating DESC LIMIT 20
+        """).fetchall()
+        comics_authors = conn.execute("""
+            SELECT m.author, COUNT(*) n
+            FROM media_items m
+            WHERE m.source='manual' AND m.media_type='comic' AND m.author IS NOT NULL
+            GROUP BY m.author ORDER BY n DESC LIMIT 15
+        """).fetchall()
+        comics_total = conn.execute("""
+            SELECT COUNT(*) FROM media_items WHERE source='manual' AND media_type='comic'
+        """).fetchone()[0]
+        audiobooks = conn.execute("""
+            SELECT m.title, m.author
+            FROM media_items m
+            WHERE m.source='audible'
+            ORDER BY m.title LIMIT 26
         """).fetchall()
     finally:
         conn.close()
@@ -905,32 +932,57 @@ async def api_ask(body: AskIn):
     def fmt_books(rows):
         return ", ".join(f"{r[0]} by {r[1] or '?'} ★{r[2]}" for r in rows[:30])
 
-    system = f"""You are the Oracle — a personal entertainment advisor with complete access to Waldo's taste data across films, TV, books, and podcasts.
+    netflix_film_str = ", ".join(f"{r[0]} ★{r[1]}" for r in netflix_films)
+    netflix_show_str = ", ".join(f"{r[0]} ★{r[1]}" for r in netflix_shows)
+    comics_author_str = ", ".join(f"{r[0]} ({r[1]} albums)" for r in comics_authors)
+    audiobook_str = ", ".join(f"{r[0]} by {r[1] or '?'}" for r in audiobooks)
+    podcast_str = ", ".join(f"{r[0]} ★{r[2]}" for r in top_podcasts)
 
-FILMS ({stats[0] if stats else '?'} rated, avg ★{stats[1] if stats else '?'}/5):
+    system = f"""You are the Oracle — a personal entertainment advisor with complete access to Waldo's taste data across films, TV shows, books, audiobooks, podcasts, and comics.
+
+FILMS ({stats[0] if stats else '?'} rated via IMDB, avg ★{stats[1] if stats else '?'}/5):
 Top-rated (4-5★): {fmt(top_films)}
 Top directors: {", ".join(f"{r[0]} ({r[2]}★ avg, {r[1]} films)" for r in top_dirs)}
 Watchlist: {", ".join(f"{r[0]} ({r[1] or '?'})" for r in watchlist)}
 
-TV SHOWS (top-rated 4-5★): {fmt(top_shows)}
+NETFLIX RATINGS — films ({len(netflix_films)} rated): {netflix_film_str}
+NETFLIX RATINGS — shows ({len(netflix_shows)} rated): {netflix_show_str}
+
+TV SHOWS (top-rated 4-5★ via IMDB): {fmt(top_shows)}
 
 BOOKS ({book_stats[0] if book_stats else 0} rated via Goodreads, avg ★{book_stats[1] if book_stats else '?'}/5):
 {fmt_books(top_books)}
 
-PODCASTS (top-rated): {", ".join(f"{r[0]} ★{r[2]}" for r in top_podcasts)}
+AUDIOBOOKS (Audible library, {len(audiobooks)} titles — no per-book ratings, listened to all):
+{audiobook_str}
 
-KEY PATTERNS:
+PODCASTS ({len(top_podcasts)} rated via PocketCasts + manual):
+{podcast_str}
+
+COMICS COLLECTION ({comics_total} albums owned — Belgian/French BD tradition):
+Top authors by volume: {comics_author_str}
+(Karel Biddeloo = Bob de Bouwer / Suske en Wiske spinoffs; Goscinny & Uderzo = Asterix; Hergé = Tintin; Franquin = Spirou/Gaston; Schuiten & Peeters = Les Cités Obscures)
+
+YOUTUBE: ~680 videos watched (watch history tracked but not individually rated)
+TIKTOK: ~85,785 videos watched (behavioral data only, no ratings)
+MUSIC: Spotify history tracked but not yet in this data export
+
+KEY TASTE PATTERNS:
 - 5-star films: City of God, Fight Club, Eyes Wide Shut, Three Colors Blue, Black Swan, Spider-Verse, LotR, Shawshank
-- 5-star books: Red Rising, Ender's Game, Children of Time, Hyperion series, Terry Pratchett (many), The Lies of Locke Lamora
+- 5-star books: Red Rising, Ender's Game, Children of Time, Hyperion series, Terry Pratchett (15+ titles), The Lies of Locke Lamora
 - 5-star shows: Black Mirror, Band of Brothers, Attack on Titan, Berlin Alexanderplatz, Cowboy Bebop
-- Book taste: sci-fi (Hyperion, Ender's Game, Children of Time), fantasy heists (Locke Lamora, Red Rising), Pratchett
-- Strong film affinities: Drama+Crime, Animation, Musical, Biography, Sci-Fi Thriller
+- 5-star podcasts: 99% Invisible, The Moth, Radiolab, Serial, Reply All, Love and Radio, Snap Judgment
+- Book taste: hard sci-fi (Hyperion, Ender's Game, Children of Time), fantasy heists (Locke Lamora, Red Rising), Pratchett wit
+- Film affinities: Drama+Crime, Animation, Musical, Biography, Sci-Fi Thriller, European arthouse
+- Comics: deep Belgian BD tradition (Biddeloo, Asterix, Tintin, Spirou, Schuiten & Peeters)
+- Audiobooks skew sci-fi/fantasy (Three-Body Problem, Discworld, Red Rising, Ursula K. Le Guin)
 
 ANSWER STYLE:
 - Be specific — cite items from Waldo's actual history to justify your reasoning
 - Short and direct — no filler, no hedging
 - When recommending: give title, year/author, one reason tied to something already rated
-- For films: IMDB score and streaming availability in DE is useful when relevant"""
+- For films: IMDB score and streaming availability in DE is useful when relevant
+- You cover ALL entertainment domains, not just films — ask about comics, audiobooks, podcasts too"""
 
     isolation_flags = [
         "--tools", "", "--strict-mcp-config", "--setting-sources", "local",

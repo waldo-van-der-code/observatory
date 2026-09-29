@@ -1363,6 +1363,7 @@ def render(conn) -> str:
     --accent-patterns: #7e3a8a;
     --accent-recs:     #d4920a;
     --search-h: 68px;
+    --primary-h: 48px;
   }}
   *, *::before, *::after {{ box-sizing:border-box; }}
   body {{
@@ -1435,7 +1436,25 @@ def render(conn) -> str:
   .grid-2 {{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }}
   @media(max-width:700px) {{ .grid-2 {{ grid-template-columns:1fr; }} }}
   /* Search bar */
-  #search-bar {{ position:sticky; top:0; z-index:100; background:var(--cobalt); border-bottom:3px solid var(--gold); padding:10px 24px; margin:0 -24px 0; }}
+  /* Primary nav bar */
+  #primary-nav {{ position:sticky; top:0; z-index:101; background:var(--cobalt); border-bottom:3px solid var(--gold); height:var(--primary-h); display:flex; align-items:center; padding:0 24px; margin:0 -24px; gap:0; }}
+  #primary-nav .pnav-logo {{ font-family:'Lora',serif; font-size:16px; font-weight:700; color:#fff; text-decoration:none; margin-right:auto; letter-spacing:.01em; white-space:nowrap; }}
+  #primary-nav .pnav-logo span {{ color:var(--gold); }}
+  #primary-nav .pnav-link {{ padding:0 14px; height:var(--primary-h); display:inline-flex; align-items:center; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:rgba(255,255,255,.65); text-decoration:none; border-bottom:3px solid transparent; margin-bottom:-3px; transition:color .15s, border-color .15s; white-space:nowrap; }}
+  #primary-nav .pnav-link:hover {{ color:#fff; }}
+  #primary-nav .pnav-link.active {{ color:#fff; border-bottom-color:rgba(255,255,255,.8); }}
+  #primary-nav .pnav-link.oracle {{ color:var(--gold); }}
+  #primary-nav .pnav-link.oracle:hover {{ color:#fff; }}
+  #primary-nav .pnav-link:focus-visible {{ outline:2px solid var(--gold); outline-offset:2px; }}
+  @media(max-width:700px) {{
+    #primary-nav .pnav-link {{ padding:0 10px; font-size:10px; }}
+    #primary-nav .pnav-logo {{ font-size:14px; }}
+  }}
+  @media(max-width:480px) {{
+    #primary-nav .pnav-link {{ display:none; }}
+    #primary-nav .pnav-link.oracle, #primary-nav .pnav-link[href="/brain"] {{ display:inline-flex; }}
+  }}
+  #search-bar {{ position:sticky; top:var(--primary-h); z-index:100; background:var(--cobalt); border-bottom:3px solid var(--gold); padding:10px 24px; margin:0 -24px 0; }}
   .search-row {{ max-width:1000px; margin:0 auto; display:flex; gap:8px; align-items:center; }}
   #search-input {{ flex:1; background:rgba(255,255,255,0.15); border:2px solid rgba(255,255,255,0.3); border-radius:2px; padding:10px 14px; color:#fff; font-size:14px; outline:none; min-height:44px; transition:border-color .2s; }}
   #search-input:focus {{ border-color:#fff; background:rgba(255,255,255,0.22); }}
@@ -1456,16 +1475,17 @@ def render(conn) -> str:
   .rec-pager-dot.active {{ background:var(--gold); }}
   #home-btn {{ display:none; background:none; border:2px solid rgba(255,255,255,0.3); border-radius:2px; padding:10px 14px; color:rgba(255,255,255,0.7); font-size:13px; cursor:pointer; white-space:nowrap; min-height:44px; transition:all .15s; }}
   #home-btn:hover {{ color:#fff; border-color:#fff; }}
-  /* Section nav — top measured by JS at runtime */
-  #section-nav {{ position:sticky; top:var(--search-h); z-index:99; background:var(--bg); border-bottom:2px solid var(--border-dark); padding:0 24px; margin:0 -24px 24px; overflow-x:auto; scrollbar-width:none; }}
+  /* Section nav — scrollable media-type tabs, sits below primary nav + search */
+  #section-nav {{ position:sticky; top:calc(var(--primary-h) + var(--search-h)); z-index:99; background:var(--bg); border-bottom:2px solid var(--border-dark); padding:0 24px; margin:0 -24px 24px; overflow-x:auto; scrollbar-width:none; }}
   #section-nav::-webkit-scrollbar {{ display:none; }}
   .snav-inner {{ max-width:1000px; margin:0 auto; display:flex; gap:0; padding:0; }}
   .snav-link {{ padding:10px 16px; font-size:11px; font-weight:700; color:var(--text-dim); text-decoration:none; white-space:nowrap; transition:color .15s, border-bottom .15s; cursor:pointer; border-bottom:3px solid transparent; letter-spacing:.08em; text-transform:uppercase; display:inline-block; }}
   .snav-link:hover {{ color:var(--text); }}
   .snav-link.active {{ color:var(--rust); border-bottom-color:var(--rust); }}
-  /* Section anchors need scroll-margin to clear sticky bars */
+  .snav-link:focus-visible {{ outline:2px solid var(--rust); outline-offset:2px; }}
+  /* Section anchors need scroll-margin to clear primary nav + search + section nav */
   #sec-overview, #sec-films, #sec-series, #sec-music-wrap, #sec-books, #sec-podcasts, #sec-comics, #sec-youtube, #sec-tiktok, #sec-patterns, #sec-recs {{
-    scroll-margin-top: calc(var(--search-h) + 52px);
+    scroll-margin-top: calc(var(--primary-h) + var(--search-h) + 52px);
   }}
   .result-card {{ display:flex; gap:12px; background:var(--bg-card); border:1px solid var(--border); border-radius:3px; padding:14px; margin-bottom:10px; transition:border-color .15s, box-shadow .15s; }}
   .result-card:hover {{ border-color:var(--cobalt); box-shadow:0 2px 8px rgba(26,22,18,0.1); }}
@@ -1599,10 +1619,7 @@ def render(conn) -> str:
   .series-count {{ font-size:13px; color:var(--text-dim); }}
   /* Stat override — use cobalt for all */
   .stat-n {{ color:var(--cobalt) !important; }}
-  /* Taste Map nav link — distinct from anchor links */
-  .snav-link.external {{ color:var(--rust); }}
-  .snav-link.external:hover {{ color:var(--rust); opacity:.75; }}
-  .snav-link.external.active {{ border-bottom-color:var(--rust); }}
+  /* (page-level nav links moved to #primary-nav) */
   /* Mobile */
   @media(max-width:700px) {{
     body {{ overflow-x:hidden; }}
@@ -1629,6 +1646,15 @@ def render(conn) -> str:
   </div>
 </div>
 
+<!-- Primary nav bar (sticky, always visible) -->
+<nav id="primary-nav" aria-label="Main navigation">
+  <a class="pnav-logo" href="/">Observatory <span>✦</span></a>
+  <a class="pnav-link active" href="/" onclick="return false;">Dashboard</a>
+  <a class="pnav-link" href="#sec-recs" onclick="document.getElementById('sec-recs').scrollIntoView({{behavior:'smooth'}});return false;">Picks</a>
+  <a class="pnav-link" href="/brain">Taste Map</a>
+  <a class="pnav-link oracle" href="/ask">✦ Ask Oracle</a>
+</nav>
+
 <div class="wrap">
 
 <!-- Search bar -->
@@ -1650,10 +1676,9 @@ def render(conn) -> str:
   </div>
 </div>
 
-<!-- Section nav -->
-<div id="section-nav">
+<!-- Section sub-nav (media type anchors, dashboard only) -->
+<div id="section-nav" role="navigation" aria-label="Browse sections">
   <div class="snav-inner">
-    <a class="snav-link" href="#sec-overview">Overview</a>
     <a class="snav-link" href="#sec-films">Films</a>
     <a class="snav-link" href="#sec-series">Series</a>
     <a class="snav-link" href="#sec-music-wrap">Music</a>
@@ -1663,9 +1688,6 @@ def render(conn) -> str:
     <a class="snav-link" href="#sec-youtube">YouTube</a>
     <a class="snav-link" href="#sec-tiktok">TikTok</a>
     <a class="snav-link" href="#sec-patterns">Patterns</a>
-    <a class="snav-link" href="#sec-recs">Picks</a>
-    <a class="snav-link external" href="/culture/map">Taste Map</a>
-    <a class="snav-link external" href="/ask" style="color:var(--gold);border-bottom-color:transparent">✦ Ask Oracle</a>
   </div>
 </div>
 
@@ -2244,7 +2266,7 @@ document.addEventListener('DOMContentLoaded', () => {{
     const starRow = document.getElementById('stars-'+id);
     if (starRow) starRow.style.display='none';
   }});
-  // Measure search bar + view tabs heights for sticky stacking
+  // Measure search bar height (primary nav height is fixed in CSS)
   const searchBar = document.getElementById('search-bar');
   if (searchBar) {{
     document.documentElement.style.setProperty('--search-h', searchBar.offsetHeight + 'px');
@@ -2288,7 +2310,7 @@ function toggleCollapsible(btn) {{
 }}
 
 function initSectionNav() {{
-  const sectionIds = ['sec-overview','sec-films','sec-series','sec-music-wrap','sec-books','sec-podcasts','sec-comics','sec-youtube','sec-tiktok','sec-patterns','sec-recs'];
+  const sectionIds = ['sec-films','sec-series','sec-music-wrap','sec-books','sec-podcasts','sec-comics','sec-youtube','sec-tiktok','sec-patterns','sec-recs'];
   const links = {{}};
   sectionIds.forEach(id => {{
     const link = document.querySelector(`.snav-link[href="#${{id}}"]`);
@@ -3000,11 +3022,16 @@ async function searchAndShowDetail(title, mediaType) {{
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out", type=Path, default=OUT, help="Output path for dashboard HTML")
+    args = parser.parse_args()
+    out_path = args.out
     conn = get_conn()
     init_db(conn)
     html = render(conn)
-    OUT.write_text(html, encoding="utf-8")
-    print(f"Dashboard written to {OUT}")
+    out_path.write_text(html, encoding="utf-8")
+    print(f"Dashboard written to {out_path}")
     print(f"  Size: {len(html):,} bytes")
 
 
