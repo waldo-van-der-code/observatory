@@ -78,6 +78,10 @@
     /* Error banner */
     .err-banner { background: rgba(201,76,26,.08); border: 1.5px solid rgba(201,76,26,.3); border-radius: 3px; padding: .6rem .9rem; font-size: .8rem; color: var(--rust); }
 
+    /* History separator */
+    .history-sep { text-align: center; font-size: .72rem; color: var(--ink-dim); opacity: .55; margin: .25rem 0; letter-spacing: .05em; }
+    .history-sep span { border-top: 1px solid var(--border); display: block; padding-top: .4rem; }
+
     @media (max-width: 600px) {
       .page { padding: 1.25rem 1rem 3rem; }
     }
@@ -122,6 +126,55 @@
   const messagesEl = document.getElementById('messages');
   const inputEl = document.getElementById('input');
   const sendBtn = document.getElementById('send-btn');
+
+  async function loadHistory() {
+    try {
+      const resp = await fetch('/api/oracle/history?limit=30');
+      if (!resp.ok) return;
+      const items = await resp.json();
+      if (!items.length) return;
+
+      const sep = document.createElement('div');
+      sep.className = 'history-sep';
+      sep.innerHTML = `<span>Previous conversations (${items.length})</span>`;
+      messagesEl.insertBefore(sep, messagesEl.firstChild);
+
+      for (const item of items) {
+        const d = new Date(item.created_at);
+        const label = d.toLocaleDateString('de-DE', { day:'2-digit', month:'short' }) + ' · ';
+        addHistoryMsg(item.question, 'user');
+        addHistoryMsg(label + item.answer, 'bot');
+      }
+
+      // Add a subtle "new session" separator after history
+      const nowSep = document.createElement('div');
+      nowSep.className = 'history-sep';
+      nowSep.innerHTML = '<span>New conversation</span>';
+      messagesEl.appendChild(nowSep);
+    } catch (_) {}
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function addHistoryMsg(text, role) {
+    const div = document.createElement('div');
+    div.className = `msg ${role}`;
+    div.style.opacity = '0.55';
+    const avatar = document.createElement('div');
+    avatar.className = `avatar ${role === 'user' ? 'user' : 'bot'}`;
+    avatar.textContent = role === 'user' ? 'Me' : '✦';
+    const bubble = document.createElement('div');
+    bubble.className = `bubble ${role === 'user' ? 'user' : 'bot'}`;
+    if (role === 'bot') {
+      bubble.innerHTML = formatAnswer(text);
+    } else {
+      bubble.textContent = text;
+    }
+    div.appendChild(avatar);
+    div.appendChild(bubble);
+    messagesEl.appendChild(div);
+  }
+
+  document.addEventListener('DOMContentLoaded', loadHistory);
 
   function addMsg(text, role) {
     const div = document.createElement('div');
