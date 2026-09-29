@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Picks — Observatory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/nav.css">
+<link rel="stylesheet" href="/static/detail.css">
+<style>
+  :root {
+    --bg: #f2ede4;
+    --bg-panel: #faf7f2;
+    --bg-card: #f5f0e8;
+    --border: rgba(26,22,18,0.12);
+    --border-dark: rgba(26,22,18,0.25);
+    --text: #1a1612;
+    --text-dim: #6b5f57;
+    --rust: #c94c1a;
+    --cobalt: #1a4fa0;
+    --gold: #d4920a;
+    --teal: #0d7e6b;
+    --primary-h: 48px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; font-size: 14px; }
+
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 28px 24px 64px; }
+
+  .page-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
+  .page-title { font-family: 'Lora', Georgia, serif; font-size: clamp(36px, 6vw, 64px); font-weight: 700; color: var(--gold); line-height: 1; margin-bottom: 10px; }
+  .page-sub { font-size: 13px; color: var(--text-dim); margin-bottom: 28px; }
+
+  .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
+  .filter-pill {
+    background: var(--bg-card); border: 1px solid var(--border-dark); border-radius: 2px;
+    padding: 7px 14px; font-size: 11px; font-weight: 600; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--text-dim); cursor: pointer; white-space: nowrap;
+    min-height: 34px; transition: color .15s, border-color .15s; font-family: inherit;
+  }
+  .filter-pill:hover { color: var(--text); }
+  .filter-pill.active { color: var(--gold); border-color: var(--gold); }
+
+  .rec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+
+  .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 3px; padding: 16px; }
+  .rec-card { cursor: pointer; transition: border-color .15s; }
+  .rec-card:hover { border-color: var(--gold); }
+
+  .rec-header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+  .rec-badge { font-size: 20px; flex-shrink: 0; }
+  .rec-title-block { flex: 1; min-width: 0; }
+  .rec-title-block strong { font-size: 14px; color: var(--text); display: block; }
+  .rec-title-block .dim { font-size: 12px; color: var(--text-dim); display: block; margin-top: 2px; }
+  .rec-conf { font-size: 13px; color: var(--teal); font-weight: 700; flex-shrink: 0; }
+  .rec-reason { font-size: 13px; color: var(--text-dim); margin-bottom: 6px; line-height: 1.55; }
+  .rec-friction { font-size: 12px; color: var(--rust); line-height: 1.4; margin-bottom: 10px; }
+  .rec-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  .action-btn {
+    font-size: 12px; background: none; border: 1px solid var(--border-dark); border-radius: 2px;
+    padding: 6px 12px; cursor: pointer; white-space: nowrap; min-height: 32px;
+    display: inline-flex; align-items: center; transition: color .15s, border-color .15s;
+    color: var(--text-dim); letter-spacing: .03em; font-family: inherit;
+  }
+  .action-btn:hover { color: var(--text); border-color: var(--text-dim); }
+  .action-btn.dismiss:hover { color: var(--rust); border-color: rgba(201,76,26,0.4); }
+  .action-btn.seen:hover { color: var(--teal); border-color: rgba(13,126,107,0.4); }
+
+  .picks-status { text-align: center; padding: 56px 24px; color: var(--text-dim); }
+
+  .pagination {
+    display: flex; align-items: center; justify-content: center; gap: 14px;
+    margin-top: 28px; padding-top: 20px; border-top: 1.5px solid var(--border-dark);
+  }
+  .page-btn {
+    background: var(--bg); border: 1.5px solid var(--border-dark); border-radius: 2px;
+    padding: 7px 18px; font-size: 12px; font-weight: 700; cursor: pointer; color: var(--text);
+    letter-spacing: .05em; text-transform: uppercase; font-family: inherit; transition: border-color .15s;
+  }
+  .page-btn:hover { border-color: var(--text); }
+  .page-btn:disabled { opacity: .4; cursor: default; }
+  .page-info { font-size: 12px; color: var(--text-dim); }
+
+  @media (max-width: 700px) { .wrap { padding: 20px 16px 48px; } }
+  @media (max-width: 600px) { .rec-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<script src="/static/nav.js"></script>
+
+<main class="wrap">
+  <div class="page-eyebrow">Curated for you</div>
+  <h1 class="page-title">What's next.</h1>
+  <p class="page-sub" id="picks-count">Loading recommendations…</p>
+
+  <div class="filter-bar" id="filter-bar">
+    <button class="filter-pill active" data-media="" onclick="setFilter(this)">All</button>
+    <button class="filter-pill" data-media="film" onclick="setFilter(this)">Film</button>
+    <button class="filter-pill" data-media="tv_show" onclick="setFilter(this)">TV</button>
+    <button class="filter-pill" data-media="book" onclick="setFilter(this)">Book</button>
+    <button class="filter-pill" data-media="music" onclick="setFilter(this)">Music</button>
+    <button class="filter-pill" data-media="podcast" onclick="setFilter(this)">Podcast</button>
+  </div>
+
+  <div id="rec-grid" class="rec-grid"></div>
+
+  <div class="pagination" id="pagination" style="display:none">
+    <button class="page-btn" id="btn-prev" onclick="loadPage(_page - 1)">← Prev</button>
+    <span class="page-info" id="page-info"></span>
+    <button class="page-btn" id="btn-next" onclick="loadPage(_page + 1)">Next →</button>
+  </div>
+</main>
+
+<script src="/static/detail.js" defer></script>
+<script>
+const PER = 15;
+let _page = 1;
+let _media = '';
+let _total = 0;
+
+const BADGE = { film: '🎬', tv_show: '📺', book: '📖', music: '🎵', podcast: '🎙️', comic: '🗯️' };
+const TYPE  = { film: 'film', tv_show: 'tv', book: 'book', music: 'music', podcast: 'podcast', comic: 'book' };
+
+function setFilter(btn) {
+  document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  _media = btn.dataset.media;
+  loadPage(1);
+}
+
+async function loadPage(page) {
+  _page = page;
+  const grid = document.getElementById('rec-grid');
+  grid.innerHTML = '<p class="picks-status">Loading…</p>';
+
+  const params = new URLSearchParams({ page: _page, per: PER });
+  if (_media) params.set('media', _media);
+
+  try {
+    const r = await fetch('/api/recs?' + params.toString());
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    _total = data.total;
+
+    const countEl = document.getElementById('picks-count');
+    const pages = Math.ceil(_total / PER);
+
+    if (!data.items.length) {
+      grid.innerHTML = '<p class="picks-status">No recommendations here yet.</p>';
+      document.getElementById('pagination').style.display = 'none';
+      countEl.textContent = '0 recommendations';
+      return;
+    }
+
+    countEl.textContent = _total + ' recommendation' + (_total !== 1 ? 's' : '');
+    grid.innerHTML = data.items.map(renderCard).join('');
+
+    // Pagination
+    const pag = document.getElementById('pagination');
+    pag.style.display = pages > 1 ? 'flex' : 'none';
+    document.getElementById('btn-prev').disabled = _page <= 1;
+    document.getElementById('btn-next').disabled = _page >= pages;
+    document.getElementById('page-info').textContent = 'Page ' + _page + ' of ' + pages;
+  } catch (e) {
+    grid.innerHTML = '<p class="picks-status">Failed to load picks. Is the server running?</p>';
+  }
+}
+
+function renderCard(item) {
+  const badge = BADGE[item.media_type] || '📄';
+  const apiType = TYPE[item.media_type] || 'film';
+  const safeTitle = (item.title || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  const sub = item.author_or_director || '';
+  const friction = item.potential_issue
+    ? '<p class="rec-friction">⚠️ ' + escHtml(item.potential_issue) + '</p>'
+    : '';
+  return (
+    '<div class="card rec-card" data-title="' + safeTitle + '" data-type="' + apiType + '"' +
+    ' onclick="searchAndShowDetail(\'' + safeTitle.replace(/'/g, "\\'") + '\',\'' + apiType + '\')">' +
+    '<div class="rec-header">' +
+    '<span class="rec-badge">' + badge + '</span>' +
+    '<div class="rec-title-block"><strong>' + escHtml(item.title) + '</strong>' +
+    (sub ? '<span class="dim">' + escHtml(sub) + '</span>' : '') +
+    '</div>' +
+    '<span class="rec-conf">' + item.confidence_pct + '%</span>' +
+    '</div>' +
+    '<p class="rec-reason">' + escHtml(item.reason || '') + '</p>' +
+    friction +
+    '<div class="rec-actions" onclick="event.stopPropagation()">' +
+    '<button class="action-btn seen" onclick="markRec(' + item.id + ',\'seen\',this)">✓ Seen</button>' +
+    '<button class="action-btn dismiss" onclick="markRec(' + item.id + ',\'dismissed\',this)">Dismiss</button>' +
+    '</div>' +
+    '</div>'
+  );
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+async function markRec(id, status, btn) {
+  btn.disabled = true;
+  try {
+    await fetch('/api/recs/' + id, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    const card = btn.closest('.rec-card');
+    if (card) {
+      card.style.transition = 'opacity .25s';
+      card.style.opacity = '0';
+      setTimeout(() => { card.remove(); loadPage(_page); }, 250);
+    }
+  } catch (e) {
+    btn.disabled = false;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => loadPage(1));
+</script>
+</body>
+</html>
