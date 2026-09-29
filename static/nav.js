@@ -19,7 +19,7 @@
   var logo = document.createElement('a');
   logo.className = 'pnav-logo';
   logo.href = '/';
-  logo.innerHTML = 'Observatory <span>✶</span>';
+  logo.innerHTML = 'Observatory <span aria-hidden="true">✶</span>';
   inner.appendChild(logo);
 
   LINKS.forEach(function (link) {
@@ -30,8 +30,10 @@
     var lp = link.path.replace(/\/$/, '') || '/';
     if (pathname === lp || (lp !== '/' && pathname.startsWith(lp + '/'))) {
       a.classList.add('active');
+      a.setAttribute('aria-current', 'page');
     } else if (lp !== '/' && pathname === lp) {
       a.classList.add('active');
+      a.setAttribute('aria-current', 'page');
     }
     inner.appendChild(a);
   });
