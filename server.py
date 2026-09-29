@@ -1104,4 +1104,46 @@ ANSWER STYLE:
         raise HTTPException(502, f"Claude CLI error (rc={proc.returncode}): {err}")
 
     answer = stdout.decode(errors="replace").strip()
+
+    # Persist to conversation history
+    try:
+        with get_conn() as hconn:
+            hconn.execute("""
+                CREATE TABLE IF NOT EXISTS oracle_conversations (
+                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    question  TEXT NOT NULL,
+                    answer    TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+                )
+            """)
+            hconn.execute(
+                "INSERT INTO oracle_conversations (question, answer) VALUES (?, ?)",
+                (body.question, answer),
+            )
+    except Exception:
+        pass  # history is best-effort — never fail a response because of it
+
     return JSONResponse({"answer": answer})
+
+
+# ── Oracle history ─────────────────────────────────────────────────────────────
+
+@app.get("/api/oracle/history")
+def api_oracle_history(limit: int = Query(default=20, le=100)):
+    with get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS oracle_conversations (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                question  TEXT NOT NULL,
+                answer    TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+        """)
+        rows = conn.execute(
+            "SELECT id, question, answer, created_at FROM oracle_conversations ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return JSONResponse([
+        {"id": r[0], "question": r[1], "answer": r[2], "created_at": r[3]}
+        for r in reversed(rows)
+    ])

@@ -1318,8 +1318,7 @@ def render(conn) -> str:
     --accent-music:    #0d7e6b;
     --accent-patterns: #7e3a8a;
     --accent-recs:     #d4920a;
-    --search-h: 68px;
-    --primary-h: 48px;
+    --primary-h: 96px; /* nav-links row (48px) + search bar row (48px) */
   }}
   *, *::before, *::after {{ box-sizing:border-box; }}
   body {{
@@ -1392,17 +1391,6 @@ def render(conn) -> str:
   li {{ margin-bottom:6px; font-size:13px; color:var(--text-dim); line-height:1.5; }}
   .grid-2 {{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; }}
   @media(max-width:700px) {{ .grid-2 {{ grid-template-columns:1fr; }} }}
-  /* Search bar — full-width outside .wrap, one gold line at bottom */
-  #search-bar {{ position:sticky; top:var(--primary-h); z-index:100; background:var(--cobalt); border-bottom:3px solid var(--gold); padding:10px 0; }}
-  .search-row {{ max-width:1000px; margin:0 auto; padding:0 24px; display:flex; gap:8px; align-items:center; }}
-  #search-input {{ flex:1; background:rgba(255,255,255,0.15); border:2px solid rgba(255,255,255,0.3); border-radius:2px; padding:10px 14px; color:#fff; font-size:14px; outline:none; min-height:44px; transition:border-color .2s; }}
-  #search-input:focus {{ border-color:#fff; background:rgba(255,255,255,0.22); }}
-  #search-input::placeholder {{ color:rgba(255,255,255,0.55); }}
-  #search-type {{ background:rgba(255,255,255,0.12); border:2px solid rgba(255,255,255,0.25); border-radius:2px; padding:10px; color:#fff; font-size:13px; min-height:44px; }}
-  #search-btn {{ background:var(--gold); border:none; border-radius:2px; padding:10px 18px; color:var(--text); font-size:13px; cursor:pointer; white-space:nowrap; min-height:44px; font-weight:700; transition:opacity .15s; letter-spacing:.05em; text-transform:uppercase; }}
-  #search-btn:hover {{ opacity:.85; }}
-  #search-btn.loading {{ pointer-events:none; opacity:.7; }}
-  .search-spinner {{ display:none; width:18px; height:18px; border:2px solid rgba(255,255,255,.35); border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite; flex-shrink:0; margin-right:-4px; }}
   @keyframes spin {{ to {{ transform:rotate(360deg) }} }}
   .page-nav {{ display:flex; align-items:center; gap:10px; justify-content:center; margin-top:16px; }}
   .page-btn {{ background:var(--bg); border:1.5px solid var(--border-dark); border-radius:2px; padding:6px 16px; font-size:12px; font-weight:700; cursor:pointer; color:var(--text); letter-spacing:.05em; text-transform:uppercase; font-family:inherit; transition:border-color .15s; }}
@@ -1412,19 +1400,17 @@ def render(conn) -> str:
   .rec-pager {{ display:flex; align-items:center; gap:12px; justify-content:center; margin-top:16px; padding-top:14px; border-top:1.5px solid var(--border); }}
   .rec-pager-dot {{ width:7px; height:7px; border-radius:50%; background:var(--border-dark); cursor:pointer; transition:background .15s; }}
   .rec-pager-dot.active {{ background:var(--gold); }}
-  #home-btn {{ display:none; background:none; border:2px solid rgba(255,255,255,0.3); border-radius:2px; padding:10px 14px; color:rgba(255,255,255,0.7); font-size:13px; cursor:pointer; white-space:nowrap; min-height:44px; transition:all .15s; }}
-  #home-btn:hover {{ color:#fff; border-color:#fff; }}
-  /* Section nav — full-width, outside .wrap, sits below primary nav + search */
-  #section-nav {{ position:sticky; top:calc(var(--primary-h) + var(--search-h)); z-index:99; background:var(--bg); border-bottom:2px solid var(--border-dark); overflow-x:auto; scrollbar-width:none; }}
+  /* Section nav — full-width, outside .wrap, sits below primary nav (includes search row) */
+  #section-nav {{ position:sticky; top:var(--primary-h); z-index:99; background:var(--bg); border-bottom:2px solid var(--border-dark); overflow-x:auto; scrollbar-width:none; }}
   #section-nav::-webkit-scrollbar {{ display:none; }}
   .snav-inner {{ max-width:1000px; margin:0 auto; display:flex; gap:0; padding:0 24px; }}
   .snav-link {{ padding:10px 16px; font-size:11px; font-weight:700; color:var(--text-dim); text-decoration:none; white-space:nowrap; transition:color .15s, border-bottom .15s; cursor:pointer; border-bottom:3px solid transparent; letter-spacing:.08em; text-transform:uppercase; display:inline-block; }}
   .snav-link:hover {{ color:var(--text); }}
   .snav-link.active {{ color:var(--rust); border-bottom-color:var(--rust); }}
   .snav-link:focus-visible {{ outline:2px solid var(--rust); outline-offset:2px; }}
-  /* Section anchors need scroll-margin to clear primary nav + search + section nav */
+  /* Section anchors need scroll-margin to clear primary nav (includes search) + section nav */
   #sec-overview, #sec-films, #sec-series, #sec-music-wrap, #sec-books, #sec-podcasts, #sec-comics, #sec-youtube, #sec-tiktok, #sec-patterns {{
-    scroll-margin-top: calc(var(--primary-h) + var(--search-h) + 52px);
+    scroll-margin-top: calc(var(--primary-h) + 52px);
   }}
   .result-card {{ display:flex; gap:12px; background:var(--bg-card); border:1px solid var(--border); border-radius:3px; padding:14px; margin-bottom:10px; transition:border-color .15s, box-shadow .15s; }}
   .result-card:hover {{ border-color:var(--cobalt); box-shadow:0 2px 8px rgba(26,22,18,0.1); }}
@@ -1537,36 +1523,14 @@ def render(conn) -> str:
     .sec-title {{ font-size:clamp(32px,10vw,56px); }}
     .sec-title.pattern {{ font-size:clamp(40px,12vw,72px); }}
     .snav-link {{ min-height:44px; display:inline-flex; align-items:center; padding:8px 12px; }}
-    .search-row {{ flex-wrap:wrap; }}
-    #search-type {{ display:none; }}
-    #search-btn {{ flex:1 0 100%; }}
   }}
 </style>
 </head>
-<body class="has-search-bar">
+<body>
 
 <script src="/static/nav.js" defer></script>
 <script src="/static/detail.js" defer></script>
 <noscript><nav id="primary-nav" aria-label="Main navigation"><div class="nav-inner"><a class="pnav-logo" href="/">Observatory <span>✦</span></a><a class="pnav-link active" href="/">Dashboard</a><a class="pnav-link" href="/picks">Picks</a><a class="pnav-link" href="/brain">Taste Map</a><a class="pnav-link oracle" href="/ask">✦ Ask Oracle</a></div></nav></noscript>
-
-<!-- Search bar (outside .wrap — full-width) -->
-<div id="search-bar">
-  <div class="search-row">
-    <button id="home-btn" onclick="goHome()" aria-label="Back to dashboard">← Dashboard</button>
-    <input id="search-input" type="text" placeholder="Search books, films, series…"
-           onkeydown="if(event.key==='Enter')doSearch()" aria-label="Search">
-    <select id="search-type" aria-label="Media type">
-      <option value="all">All</option>
-      <option value="book">📖 Books</option>
-      <option value="film">🎬 Films</option>
-      <option value="tv">📺 TV</option>
-      <option value="music">🎵 Music</option>
-      <option value="podcast">🎙️ Podcasts</option>
-    </select>
-    <div class="search-spinner" id="search-spinner"></div>
-    <button id="search-btn" onclick="doSearch()">Search</button>
-  </div>
-</div>
 
 <!-- Section sub-nav (outside .wrap — full-width) -->
 <div id="section-nav" role="navigation" aria-label="Browse sections">
@@ -2037,13 +2001,18 @@ function switchTab(name) {{
 }}
 
 document.addEventListener('DOMContentLoaded', () => {{
-  // Measure search bar height (primary nav height is fixed in CSS)
-  const searchBar = document.getElementById('search-bar');
-  if (searchBar) {{
-    document.documentElement.style.setProperty('--search-h', searchBar.offsetHeight + 'px');
-  }}
   initSectionNav();
   initCollapsibles();
+  // Auto-trigger search if navigated from another page with ?q=
+  const params = new URLSearchParams(location.search);
+  const autoQ = params.get('q');
+  if (autoQ) {{
+    const inp = document.getElementById('nav-search-input');
+    const typ = document.getElementById('nav-search-type');
+    if (inp) inp.value = autoQ;
+    if (typ && params.get('type')) typ.value = params.get('type');
+    doSearch();
+  }}
 }});
 
 function initCollapsibles() {{
@@ -2112,23 +2081,21 @@ let _activeFilter = 'all';
 
 // ── Search ─────────────────────────────────────────────────────────────────
 async function doSearch(page) {{
-  const q = document.getElementById('search-input').value.trim();
+  const q = document.getElementById('nav-search-input').value.trim();
   if (!q) return;
   if (page === undefined) page = 1;
   _searchPage = page;
-  const type = document.getElementById('search-type').value;
+  const type = document.getElementById('nav-search-type').value;
 
-  const spinner = document.getElementById('search-spinner');
-  const btn = document.getElementById('search-btn');
-  spinner.style.display = 'block';
-  btn.classList.add('loading');
-  btn.textContent = '';
+  const spinner = document.getElementById('nav-search-spinner');
+  const btn = document.getElementById('nav-search-btn');
+  if (spinner) spinner.style.display = 'block';
+  if (btn) {{ btn.classList.add('loading'); btn.textContent = ''; }}
 
   document.getElementById('search-status').textContent = 'Searching…';
   document.getElementById('search-panel').style.display = 'block';
   document.getElementById('search-results-list').innerHTML = '';
   document.getElementById('search-page-nav').style.display = 'none';
-  document.getElementById('home-btn').style.display = 'inline-flex';
   document.getElementById('filter-pills').style.display = 'none';
 
   try {{
@@ -2147,9 +2114,8 @@ async function doSearch(page) {{
   }} catch(e) {{
     document.getElementById('search-status').textContent = 'Search failed — is the server running?';
   }} finally {{
-    spinner.style.display = 'none';
-    btn.classList.remove('loading');
-    btn.textContent = 'Search';
+    if (spinner) spinner.style.display = 'none';
+    if (btn) {{ btn.classList.remove('loading'); btn.textContent = 'Search'; }}
   }}
 }}
 
@@ -2175,7 +2141,7 @@ function goSearchPage(delta) {{
 function renderFiltered(type, items, q) {{
   _activeFilter = type;
   const filtered = type === 'all' ? items : items.filter(i => i.media_type === type);
-  const label = q || document.getElementById('search-input').value.trim();
+  const label = q || document.getElementById('nav-search-input').value.trim();
   document.getElementById('search-status').textContent =
     filtered.length ? `${{filtered.length}} result${{filtered.length>1?'s':''}} for "${{label}}"` : `No results for "${{label}}"`;
   document.getElementById('search-results-list').innerHTML = filtered.map(renderResultCard).join('');
@@ -2191,8 +2157,8 @@ function filterResults(type, btn) {{
 function closeSearch() {{
   document.getElementById('search-panel').style.display = 'none';
   document.getElementById('related-panel').style.display = 'none';
-  document.getElementById('home-btn').style.display = 'none';
-  document.getElementById('search-input').value = '';
+  const inp = document.getElementById('nav-search-input');
+  if (inp) inp.value = '';
   document.getElementById('search-status').textContent = '';
   document.getElementById('search-results-list').innerHTML = '';
   document.getElementById('filter-pills').style.display = 'none';

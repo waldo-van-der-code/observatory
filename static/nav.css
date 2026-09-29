@@ -4,9 +4,9 @@
   top: 0;
   z-index: 200;
   background: #1a4fa0;
-  border-bottom: 3px solid #d4920a; /* removed by .has-search-bar override */
   width: 100%;
   box-sizing: border-box;
+  border-bottom: none; /* search bar provides the gold separator */
 }
 .nav-inner {
   max-width: 1000px;
@@ -49,9 +49,76 @@
 .pnav-link.oracle { color: #d4920a; }
 .pnav-link.oracle:hover { color: #fff; }
 .pnav-link:focus-visible { outline: 2px solid #d4920a; outline-offset: 2px; }
+
+/* ── Global search bar row ── */
+#search-bar {
+  background: #1a4fa0;
+  border-bottom: 3px solid #d4920a;
+  width: 100%;
+}
+.search-inner {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 24px 10px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+#nav-search-input {
+  flex: 1;
+  height: 38px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 2px;
+  font-size: 14px;
+  font-family: 'Inter', system-ui, sans-serif;
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  outline: none;
+  transition: background .15s;
+}
+#nav-search-input::placeholder { color: rgba(255,255,255,.45); }
+#nav-search-input:focus { background: rgba(255,255,255,.2); }
+#nav-search-type {
+  height: 38px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 2px;
+  font-size: 13px;
+  font-family: inherit;
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  cursor: pointer;
+  outline: none;
+}
+#nav-search-type option { background: #1a4fa0; color: #fff; }
+#nav-search-btn {
+  height: 38px;
+  padding: 0 20px;
+  background: #d4920a;
+  color: #fff;
+  border: none;
+  border-radius: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  font-family: inherit;
+  transition: opacity .15s;
+  white-space: nowrap;
+}
+#nav-search-btn:hover { opacity: .85; }
+#nav-search-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+#nav-search-btn.loading { pointer-events: none; opacity: .7; }
+.search-spinner { display: none; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; border-radius: 50%; animation: nav-spin .7s linear infinite; flex-shrink: 0; }
+@keyframes nav-spin { to { transform: rotate(360deg); } }
+
 @media (max-width: 700px) {
   .pnav-link { padding: 0 10px; font-size: 10px; }
   .pnav-logo { font-size: 14px; }
+  .search-inner { padding: 0 16px 8px; gap: 6px; }
+  #nav-search-type { display: none; }
 }
 @media (max-width: 480px) {
   /* On small phones, show Oracle, Brain, and Picks — Dashboard is the root URL */
@@ -60,5 +127,3 @@
   .pnav-link[href="/brain"],
   .pnav-link[href="/picks"] { display: inline-flex; }
 }
-/* Dashboard: search bar provides the gold separator, not the nav */
-.has-search-bar #primary-nav { border-bottom: none; }
