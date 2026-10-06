@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>✦ Your Taste Map</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-<noscript><link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet"></noscript>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Cinzel+Decorative:wght@700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Cinzel+Decorative:wght@700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet"></noscript>
 <link rel="stylesheet" href="/static/nav.css">
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <style>
@@ -50,28 +50,66 @@
   }
 
   /* ── Map ── */
-  /* ── Chapters banner ── */
-  #chapters-link {
-    text-align: center;
-    padding: 0.4rem 1rem 0.6rem;
+  /* ── Life Chapters board ── */
+  #chapters-section {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 0.5rem 1.25rem 2.5rem;
   }
-  #chapters-link a {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
+  #chapters-section > h2 {
     font-family: 'Cinzel', serif;
-    font-size: 0.72rem;
-    letter-spacing: 0.09em;
+    font-size: clamp(0.85rem, 2vw, 1.1rem);
+    letter-spacing: 0.1em;
     color: var(--text-muted);
-    text-decoration: none;
-    border: 1px solid rgba(138,154,122,0.3);
-    border-radius: 20px;
-    padding: 0.28rem 0.9rem;
-    transition: color 0.18s, border-color 0.18s;
+    text-align: center;
+    margin-bottom: 1rem;
+    opacity: 0.7;
   }
-  #chapters-link a:hover {
-    color: var(--text);
-    border-color: rgba(138,154,122,0.7);
+
+  /* Board — adapted from culture/chapters.astro */
+  .goose-board { position:relative; border-radius:6px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,.6),10px 10px 0 #1a0e04; }
+  .board-border { background:repeating-linear-gradient(90deg,#a83808 0px,#c94c1a 4px,#e07828 4px,#e07828 8px,#c94c1a 8px,#c94c1a 14px,#f0a040 14px,#f0a040 18px,#c94c1a 18px,#c94c1a 24px,#8b2e0a 24px,#8b2e0a 28px,#c94c1a 28px,#c94c1a 36px); height:13px; }
+  .board-border.bottom { transform:scaleY(-1); }
+  .board-inner { background:radial-gradient(ellipse 80% 60% at 50% 50%,#3d7828 0%,#2c5c1e 55%,#1e4414 100%); border-left:7px solid #6b4010; border-right:7px solid #6b4010; padding:1rem 1.1rem 1.1rem; position:relative; }
+  .board-inner::before { content:''; position:absolute; inset:0; border-left:2px solid rgba(212,146,10,.3); border-right:2px solid rgba(212,146,10,.3); pointer-events:none; z-index:0; }
+  .board-title { text-align:center; font-family:'Cinzel',serif; font-size:.78rem; font-weight:700; letter-spacing:.22em; text-transform:uppercase; color:#f0c040; margin-bottom:.85rem; text-shadow:0 1px 5px rgba(0,0,0,.6); position:relative; z-index:1; }
+  .goose-grid { display:grid; grid-template-columns:repeat(5,1fr); grid-template-rows:auto auto auto; grid-template-areas:"c1 c2 c3 c4 c5" "c12 c13 c14 cw c6" "c11 c10 c9 c8 c7"; column-gap:.55rem; row-gap:2rem; position:relative; z-index:1; }
+  .c1{grid-area:c1}.c2{grid-area:c2}.c3{grid-area:c3}.c4{grid-area:c4}.c5{grid-area:c5}.c6{grid-area:c6}.c7{grid-area:c7}.c8{grid-area:c8}.c9{grid-area:c9}.c10{grid-area:c10}.c11{grid-area:c11}.c12{grid-area:c12}.c13{grid-area:c13}.c14{grid-area:c14}.cw{grid-area:cw}
+  .ch-sq { background:linear-gradient(155deg,#faf5e4 0%,#f0e6c0 100%); border:2.5px solid #9b7820; border-radius:5px; padding:.8rem .7rem .9rem; position:relative; display:flex; flex-direction:column; gap:.33rem; box-shadow:inset 0 1px 3px rgba(255,255,255,.55),0 2px 5px rgba(0,0,0,.22),2px 3px 0 rgba(0,0,0,.18); transition:transform .15s,box-shadow .15s; cursor:default; }
+  .ch-sq:hover { transform:translateY(-2px); box-shadow:inset 0 1px 3px rgba(255,255,255,.55),0 4px 10px rgba(0,0,0,.28),3px 5px 0 rgba(0,0,0,.18); }
+  .c1::after,.c2::after,.c3::after,.c4::after,.c5::after,.c6::after,.c7::after,.c8::after,.c9::after,.c10::after,.c11::after,.c12::after,.c13::after,.c14::after { position:absolute; color:#f5d060; font-size:1.1rem; z-index:10; pointer-events:none; text-shadow:0 0 6px rgba(212,146,10,.9),0 2px 6px rgba(0,0,0,.9); line-height:1; }
+  .c1::after,.c2::after,.c3::after,.c4::after,.c12::after,.c13::after,.c14::after { content:'▶'; right:-.5rem; top:50%; transform:translateY(-50%); }
+  .c5::after,.c6::after { content:'▼'; bottom:-.8rem; left:50%; transform:translateX(-50%); }
+  .c7::after,.c8::after,.c9::after,.c10::after { content:'◀'; left:-.5rem; top:50%; transform:translateY(-50%); }
+  .c11::after { content:'▲'; top:-.8rem; left:50%; transform:translateX(-50%); }
+  .c5{margin-bottom:-.9rem}.c6{margin-top:-.9rem;margin-bottom:-.9rem;margin-left:1rem}.c7{margin-top:-.9rem}.c11{margin-top:-.9rem}.c12{margin-bottom:-.9rem}
+  .ch-yr { font-family:'Cinzel Decorative','Cinzel',serif; font-size:1.15rem; font-weight:700; text-align:center; color:#a06808; text-shadow:0 1px 2px rgba(80,40,0,.25); letter-spacing:.03em; line-height:1.1; padding:.25rem .4rem .35rem; border-bottom:1px solid rgba(155,120,32,.4); margin-bottom:.1rem; }
+  .ch-yr::before{content:'☙ ';opacity:.6;font-size:.7em;vertical-align:middle}.ch-yr::after{content:' ❧';opacity:.6;font-size:.7em;vertical-align:middle}
+  .ch-name{font-size:.72rem;font-weight:700;color:#3a2408;line-height:1.3}
+  .ch-div{border:none;border-top:1px solid rgba(155,120,32,.28);margin:.15rem 0}
+  .ch-summary{font-size:.67rem;color:#4a3428;line-height:1.55}
+  .ch-media-label{font-size:.54rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#7a5a28;margin-top:.3rem}
+  .ch-media-val{font-size:.65rem;color:#4a3428;line-height:1.5}
+  .ch-pill{display:inline-block;background:rgba(155,120,32,.11);border:1px solid rgba(155,120,32,.22);border-radius:2px;padding:1px 5px;font-size:.6rem;margin:1px 2px 1px 0;color:#3a2408}
+  .cw { background:linear-gradient(145deg,#2d6022 0%,#1e4a16 100%); border:2.5px solid #6b8a20; border-radius:5px; padding:.8rem .7rem .4rem; display:flex; flex-direction:column; align-items:center; justify-content:space-between; gap:.3rem; box-shadow:inset 0 2px 8px rgba(0,0,0,.25),2px 3px 0 rgba(0,0,0,.2); position:relative; }
+  .cw::before { content:''; position:absolute; inset:4px; border:1px solid rgba(212,146,10,.2); border-radius:3px; pointer-events:none; }
+  .goose-wrap { flex-shrink:0; filter:drop-shadow(1px 4px 6px rgba(0,0,0,.4)); align-self:flex-end; }
+  .waldo-portrait { flex-shrink:0; display:flex; flex-direction:column; align-items:center; gap:.45rem; text-align:center; }
+  .waldo-ring { width:90px; height:90px; border-radius:50%; background:conic-gradient(from 0deg,#d4920a 0deg,#f5d060 45deg,#d4920a 90deg,#8b5a00 135deg,#d4920a 180deg,#f5d060 225deg,#d4920a 270deg,#8b5a00 315deg,#d4920a 360deg); padding:5px; box-shadow:0 4px 8px rgba(0,0,0,.4); }
+  .waldo-ring-inner { width:100%; height:100%; border-radius:50%; background:#245018; padding:3px; }
+  .waldo-photo { width:100%; height:100%; border-radius:50%; overflow:hidden; border:2px solid rgba(212,146,10,.35); }
+  .waldo-photo img { width:100%; height:100%; object-fit:cover; display:block; }
+  .waldo-name { font-family:'Cinzel',serif; font-size:1rem; font-weight:700; color:#f0c040; text-shadow:0 1px 5px rgba(0,0,0,.65); }
+  .waldo-tagline { font-size:.6rem; color:rgba(255,255,255,.68); max-width:155px; line-height:1.55; }
+  .waldo-stats { border-top:1px solid rgba(212,146,10,.22); padding-top:.4rem; font-size:.57rem; color:rgba(255,255,255,.5); line-height:1.8; }
+  .waldo-stats em { color:#f0c040; font-style:normal; font-weight:600; }
+  @media (max-width:960px) {
+    .goose-grid { grid-template-columns:repeat(3,1fr); grid-template-areas:"c1 c2 c3" "c4 c5 c6" "c7 c8 c9" "c10 c11 c12" "c13 c14 cw"; }
+    .c1::after,.c2::after,.c3::after,.c4::after,.c5::after,.c6::after,.c7::after,.c8::after,.c9::after,.c10::after,.c11::after,.c12::after,.c13::after,.c14::after { display:none; }
+  }
+  @media (max-width:560px) {
+    .goose-grid { grid-template-columns:1fr 1fr; grid-template-areas:"c1 c2" "c3 c4" "c5 c6" "c7 c8" "c9 c10" "c11 c12" "c13 c14" "cw cw"; }
+    .cw { flex-direction:column; }
   }
 
   #map-view {
@@ -264,11 +302,202 @@
 
 <div id="loading-overlay"><span>Loading…</span></div>
 
-<div id="chapters-link">
-  <a href="https://waldo.vanderlore.de/culture/chapters" target="_blank" rel="noopener">
-    ✦ Life Chapters
-  </a>
-</div>
+<section id="chapters-section">
+  <h2>✦ Life Chapters · 2013–2026</h2>
+  <div class="goose-board">
+    <div class="board-border"></div>
+    <div class="board-inner">
+      <div class="board-title">☙ The Game of the Life of Waldo — Roll &amp; Discover ❧</div>
+      <div class="goose-grid">
+
+        <div class="ch-sq c1">
+          <div class="ch-yr">2013</div>
+          <div class="ch-name">Arriving in Berlin</div>
+          <div class="ch-summary">Landing in a new city and figuring out what to do with it. The underground music scene — Rampue, Solomun — becomes the compass. First real apartment, no furniture, no plan. Long walks. Clubs on weekday nights. Cinema as a social ritual. The era of discovering that a city can change you if you let it.</div>
+          <div class="ch-media-label">🎬 Watching</div>
+          <div class="ch-media-val"><span class="ch-pill">Once Upon a Time in the West 10★</span><span class="ch-pill">The Usual Suspects 10★</span></div>
+        </div>
+
+        <div class="ch-sq c2">
+          <div class="ch-yr">2014</div>
+          <div class="ch-name">Building a Home</div>
+          <div class="ch-summary">First real DIY phase — lamp wiring, drilling, Baufassung. Making a Berlin apartment feel like somewhere. Bob Dylan becomes a permanent fixture on the speakers. Attack on Titan arrives and leaves a mark. Curious about everything, committed to nothing yet — but the restlessness is starting to look for direction.</div>
+          <div class="ch-media-label">🎵 Listening to</div>
+          <div class="ch-media-val">Bob Dylan · Eels · Eskmo · Sons of Perdition</div>
+          <div class="ch-media-label">🎬 Watching</div>
+          <div class="ch-media-val"><span class="ch-pill">Attack on Titan 10★</span><span class="ch-pill">Fargo 9★</span></div>
+        </div>
+
+        <div class="ch-sq c3">
+          <div class="ch-yr">2015</div>
+          <div class="ch-name">Movement &amp; Creative Curiosity</div>
+          <div class="ch-summary">Biodanza, contact improvisation, and Vicky Cristina Barcelona on repeat. DJ Shadow, Peter Fox, and early Google Analytics curiosity. Physical movement practices alongside a growing interest in film and data. A restless, exploratory year — no single obsession, many doors opening.</div>
+          <div class="ch-media-label">🎵 Listening to</div>
+          <div class="ch-media-val">Paul Simon · Sam Cooke · Bonobo · DJ Shadow</div>
+        </div>
+
+        <div class="ch-sq c4">
+          <div class="ch-yr">2016</div>
+          <div class="ch-name">Xavier Rudd &amp; The Bowie Year</div>
+          <div class="ch-summary">The peak listening year — 841 hours on Spotify. Xavier Rudd becomes an unlikely obsession: Spirit Bird, Follow the Sun on constant repeat. David Bowie dies in January and stays in the feed all year. Black Mirror lands like a gut punch. Animation resurfaces: The Secret of Kells reveals a whole world of studio craft that wasn't on the radar before.</div>
+          <div class="ch-media-label">🎵 Listening to</div>
+          <div class="ch-media-val">Xavier Rudd · Bob Dylan · David Bowie · The Beatles</div>
+          <div class="ch-media-label">🎬 Watching</div>
+          <div class="ch-media-val"><span class="ch-pill">Black Mirror 10★</span><span class="ch-pill">The Secret of Kells 10★</span><span class="ch-pill">Kubo and the Two Strings 9★</span></div>
+        </div>
+
+        <div class="ch-sq c5">
+          <div class="ch-yr">2017</div>
+          <div class="ch-name">Classic TV &amp; Soul Standards</div>
+          <div class="ch-summary">The quietest music year of the decade — 472 hours, half of 2016 — but the quality is high. Otis Redding and The Beach Boys alongside Dylan. California Dreamin' becomes the most-played track. On screen: Rick and Morty earns a rare 10, Band of Brothers finally gets watched, and The Get Down briefly makes history feel electric.</div>
+          <div class="ch-media-label">🎵 Listening to</div>
+          <div class="ch-media-val">Bob Dylan · Otis Redding · Paul Simon · The Beach Boys</div>
+          <div class="ch-media-label">🎬 Watching</div>
+          <div class="ch-media-val"><span class="ch-pill">Rick and Morty 10★</span><span class="ch-pill">Band of Brothers 10★</span><span class="ch-pill">Legion 10★</span></div>
+        </div>
+
+        <div class="ch-sq c6">
+          <div class="ch-yr">2018</div>
+          <div class="ch-name">Netflix Arrives, Comfort Listening</div>
+          <div class="ch-summary">Netflix becomes a fixture — Brooklyn Nine-Nine and The Good Wife absorb hundreds of hours. Listening settles into a warm, dependable rotation: Paul Simon, Leonard Cohen, The Beatles. Summertime becomes the year's most-played track. Future Man sneaks in as a 10. A year of comfort and consolidation rather than discovery.</div>
+          <div class="ch-media-label">🎵 Listening to</div>
+          <div class="ch-media-val">Bob Dylan · Paul Simon · Leonard Cohen · The Beatles</div>
+          <div class="ch-media-label">🎬 Watching</div>
+          <div class="ch-media-val"><span class="ch-pill">Future Man 10★</span><span class="ch-pill">Arrival 9★</span><span class="ch-pill">Isle of Dogs 9★</span></div>
+        </div>
+
+        <div class="ch-sq c14">
+          <div class="ch-yr">2026</div>
+          <div class="ch-name">Claude Code &amp; SNL Season</div>
+          <div class="ch-summary">Nine SNL sketches consumed in quick succession — a pure comedy detox. Then Anthropic and Claude Code videos mark the AI work era becoming real and professional. Dana and the Wolf relationship comedy. Kurzgesagt science deep dives. The Muppets on New Year's Day. Jacques Brel on Spotify signals something nostalgic stirring.</div>
+          <div class="ch-media-label">🎵 Listening to</div>
+          <div class="ch-media-val">Paul Simon · Jacques Brel · Frazey Ford · The Beatles · Veyrix</div>
+          <div class="ch-media-label">📖 Reading</div>
+          <div class="ch-media-val"><span class="ch-pill">Hamnet 5★</span><span class="ch-pill">The Lies of Locke Lamora 5★</span><span class="ch-pill">Good Omens 5★</span></div>
+          <div class="ch-media-label">🎬 Films</div>
+          <div class="ch-media-val">2001: A Space Odyssey 5★ · Mulholland Drive 5★</div>
+        </div>
+
+        <div class="cw">
+          <div class="waldo-portrait">
+            <div class="waldo-ring">
+              <div class="waldo-ring-inner">
+                <div class="waldo-photo">
+                  <img src="https://waldo.vanderlore.de/images/waldo-profile.jpg" alt="Waldo" loading="lazy" />
+                </div>
+              </div>
+            </div>
+            <div class="waldo-name">Where is Waldo?</div>
+            <div class="waldo-tagline">Right here — at the end of a decade of music, books, series binges, a pandemic, and a drift toward building things with AI.</div>
+            <div class="waldo-stats">
+              <em>160k+</em> Spotify streams · <em>32</em> Pratchett novels<br/>
+              <em>1,137</em> eps One Piece · <em>1</em> Winona
+            </div>
+          </div>
+          <div class="goose-wrap">
+            <svg viewBox="0 0 210 250" xmlns="http://www.w3.org/2000/svg" width="90" height="107">
+              <ellipse cx="105" cy="240" rx="95" ry="11" fill="#1e5a18" opacity=".5"/>
+              <path d="M20 240 Q45 231 70 238 Q95 245 118 239 Q142 233 168 239 Q188 244 205 238" stroke="#2d6a1e" stroke-width="3.5" fill="none" opacity=".6"/>
+              <ellipse cx="108" cy="178" rx="85" ry="56" fill="#8b6520"/>
+              <ellipse cx="103" cy="168" rx="77" ry="48" fill="#9b7530"/>
+              <ellipse cx="93" cy="198" rx="55" ry="32" fill="#c4a058"/>
+              <ellipse cx="82" cy="188" rx="36" ry="28" fill="#d4b068" opacity=".7"/>
+              <path d="M36 170 Q65 184 100 175 Q130 166 160 173 Q180 178 198 167" stroke="#6b4e18" stroke-width="1.5" fill="none" opacity=".65"/>
+              <path d="M34 186 Q65 202 104 192 Q136 183 168 190 Q188 195 198 184" stroke="#6b4e18" stroke-width="1.5" fill="none" opacity=".6"/>
+              <path d="M38 202 Q68 215 106 206 Q138 199 166 205" stroke="#6b4e18" stroke-width="1" fill="none" opacity=".45"/>
+              <path d="M196 165 Q222 150 220 177 Q218 200 202 194Z" fill="#7a5a16"/>
+              <path d="M103 133 Q92 104 97 72 Q101 50 110 40" stroke="#161616" stroke-width="25" fill="none" stroke-linecap="round"/>
+              <path d="M106 129 Q97 104 100 75 Q103 55 112 46" stroke="#2a2a2a" stroke-width="8" fill="none" stroke-linecap="round" opacity=".4"/>
+              <ellipse cx="118" cy="36" rx="27" ry="23" fill="#161616"/>
+              <path d="M99 42 Q102 57 117 63 Q130 66 139 57 Q132 69 118 70 Q100 70 95 52Z" fill="#e0e0e0"/>
+              <circle cx="128" cy="31" r="5.5" fill="#fff" opacity=".92"/>
+              <circle cx="129" cy="31" r="3.5" fill="#0a0a0a"/>
+              <circle cx="130" cy="30" r="1.2" fill="#fff"/>
+              <path d="M141 32 L163 38 Q165 41 163 44 L141 44Z" fill="#909090"/>
+              <line x1="141" y1="38" x2="163" y2="39" stroke="#666" stroke-width="1" opacity=".7"/>
+              <line x1="88" y1="224" x2="88" y2="238" stroke="#9b7828" stroke-width="4"/>
+              <path d="M88 238 L74 250 M88 238 L82 253 M88 238 L91 252 M88 238 L100 250" stroke="#9b7828" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+              <line x1="126" y1="224" x2="126" y2="238" stroke="#9b7828" stroke-width="4"/>
+              <path d="M126 238 L112 250 M126 238 L120 253 M126 238 L129 252 M126 238 L138 250" stroke="#9b7828" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="ch-sq c7">
+          <div class="ch-yr">2019</div>
+          <div class="ch-name">The Office Era &amp; Burning Man</div>
+          <div class="ch-summary">Nine The Office compilation videos watched back to back — pure comfort binge. Burning Man vlogs filling the exploratory gap. Classic music and a heavy Pratchett reading streak. Life was about to change dramatically, but in 2019 it was still the era of long series binges and literary deep dives.</div>
+          <div class="ch-media-label">🎵 Listening to</div>
+          <div class="ch-media-val">Mop Mop · Dolly Parton · Paul Simon · Bob Dylan</div>
+          <div class="ch-media-label">📖 Reading</div>
+          <div class="ch-media-val"><span class="ch-pill">Theatre of Cruelty 5★</span><span class="ch-pill">Witches Abroad 5★</span><span class="ch-pill">Moving Pictures 5★</span><span class="ch-pill">Guards! Guards! 5★</span></div>
+        </div>
+
+        <div class="ch-sq c8">
+          <div class="ch-yr">2020</div>
+          <div class="ch-name">COVID Lockdown — Magic &amp; Film</div>
+          <div class="ch-summary">Penn &amp; Teller: Fool Us became an obsession — seven or more episodes watched in succession. A Wes Anderson film trailer deep dive, Cartoon Saloon animation, and the very first One Piece analysis videos. Stuck indoors, leaning into wonder and craft. Music swings between nostalgia (Avicii tributes) and soul.</div>
+          <div class="ch-media-label">🎵 Listening to</div>
+          <div class="ch-media-val">Avicii · The Beatles · Nina Simone · David Bowie</div>
+          <div class="ch-media-label">📖 Reading</div>
+          <div class="ch-media-val"><span class="ch-pill">One Hundred Years of Solitude</span></div>
+        </div>
+
+        <div class="ch-sq c9">
+          <div class="ch-yr">2021</div>
+          <div class="ch-name">One Piece Deep Dive &amp; NYE 2021</div>
+          <div class="ch-summary">B.D.A. Law and Ohara One Piece theory videos across the year. A genuine intellectual rabbit hole: lore, symbolism, and the deeper philosophy of the manga. Culminates in a massive New Year's Eve party — Bijou Matinee silent films, Lil Nas X, Mark Rober. Annie O's hot air balloon DJ set in Berlin is the peak of the era.</div>
+          <div class="ch-media-label">🎵 Listening to</div>
+          <div class="ch-media-val">B.B. King · Bob Dylan · Eric Clapton · The Teskey Brothers</div>
+          <div class="ch-media-label">🎬 Watching</div>
+          <div class="ch-media-val"><span class="ch-pill">The White Tiger 10★</span><span class="ch-pill">What We Do in the Shadows 9★</span></div>
+        </div>
+
+        <div class="ch-sq c10">
+          <div class="ch-yr">2022</div>
+          <div class="ch-name">Babyproofing &amp; Homeowner Life</div>
+          <div class="ch-summary">Childproofing windows, drawer locks, Thule bike trailer for kids — Winnie is on the move. Ukraine war news breaks through the otherwise domestic feed. sleep-o-phant (womb sounds for baby sleep) becomes the single most-played "artist" of the year at 665 hours. A sparse-watching period balanced by a Pratchett reading binge.</div>
+          <div class="ch-media-label">🎵 Listening to</div>
+          <div class="ch-media-val">Paul Simon · J.J. Cale · The Beatles · Bob Dylan</div>
+          <div class="ch-media-label">📖 Reading</div>
+          <div class="ch-media-val"><span class="ch-pill">The Truth 5★</span><span class="ch-pill">Nation 5★</span><span class="ch-pill">Monstrous Regiment 5★</span><span class="ch-pill">Making Money 5★</span></div>
+        </div>
+
+        <div class="ch-sq c11">
+          <div class="ch-yr">2023</div>
+          <div class="ch-name">Mobile Gaming &amp; AI Discovery</div>
+          <div class="ch-summary">Survivor.io game guides take over spring and summer — a pure dopamine-loop phase. Then a single video in March 2023: the first ChatGPT explainer. The AI era begins quietly in the YouTube feed. National Geographic and History Channel documentaries. A hard SF reading streak — Simmons, Tchaikovsky, Islington — that doesn't stop.</div>
+          <div class="ch-media-label">🎵 Listening to</div>
+          <div class="ch-media-val">The Beatles · ALA.NI · The Beach Boys · Richards Kindermusikladen</div>
+          <div class="ch-media-label">📖 Reading</div>
+          <div class="ch-media-val"><span class="ch-pill">The Will of the Many 5★</span><span class="ch-pill">Children of Time 5★</span><span class="ch-pill">Hyperion 5★</span><span class="ch-pill">Ender's Game 5★</span></div>
+        </div>
+
+        <div class="ch-sq c12">
+          <div class="ch-yr">2024</div>
+          <div class="ch-name">Board Games &amp; Belgian Roots</div>
+          <div class="ch-summary">Legends of Andor and Caverna board game tutorials mark the start of a whole new hobby. Angèle (Belgian indie pop) arriving strongly in the feed — a rediscovery of roots. Coffeezilla investigative journalism, Montessori parenting, a brief crypto phase, and Made in Abyss anime trailers. Soul and Motown return on Spotify.</div>
+          <div class="ch-media-label">🎵 Listening to</div>
+          <div class="ch-media-val">Otis Redding · Nina Simone · The Beatles · Bill Withers · Aretha Franklin</div>
+          <div class="ch-media-label">📖 Reading</div>
+          <div class="ch-media-val"><span class="ch-pill">Red Rising 5★</span><span class="ch-pill">The Creative Act 4★</span></div>
+        </div>
+
+        <div class="ch-sq c13">
+          <div class="ch-yr">2025</div>
+          <div class="ch-name">Anime Awakening &amp; Berlin Leisure</div>
+          <div class="ch-summary">Solo Leveling and Pantheon anime arrive as serious contenders. Flock Together board game adds another hobby layer. Tom Scott architecture videos, whittle carving, and the Berlin illusion museum. Miro interview technique tips suggest a job search in the mix. Music turns more eclectic — Belgian chanson, Cari Cari, Rodríguez.</div>
+          <div class="ch-media-label">🎵 Listening to</div>
+          <div class="ch-media-val">Dekker · The Beatles · Rodríguez · Bob Dylan · Cari Cari</div>
+          <div class="ch-media-label">📖 Reading</div>
+          <div class="ch-media-val"><span class="ch-pill">Depths of Vanalf</span><span class="ch-pill">Nexus</span><span class="ch-pill">Empire of Silence</span><span class="ch-pill">The Quantum Magician</span></div>
+        </div>
+
+      </div>
+    </div>
+    <div class="board-border bottom"></div>
+  </div>
+</section>
 
 <div id="map-view">
   <div id="map-outer">
