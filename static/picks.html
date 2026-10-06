@@ -174,7 +174,7 @@ async function loadPage(page) {
 function renderCard(item) {
   const badge = BADGE[item.media_type] || '📄';
   const apiType = TYPE[item.media_type] || 'film';
-  const safeTitle = (item.title || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  const safeTitle = (item.title || '').replace(/"/g, '&quot;');
   const sub = item.author_or_director || '';
   const friction = item.potential_issue
     ? '<p class="rec-friction">⚠️ ' + escHtml(item.potential_issue) + '</p>'

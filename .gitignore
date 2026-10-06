@@ -2,6 +2,7 @@
 data/raw/
 data/processed/
 data/cache/
+data/*.db
 
 # Fixtures are committed (synthetic data only — no personal content)
 # data/fixtures/ is intentionally NOT gitignored
@@ -10,8 +11,9 @@ youtube-watch-history/
 # Generated dashboard (contains personal stats)
 dashboard.html
 
-# Generated island images (derived from personal listening/viewing data)
+# Generated island images and prompts (derived from personal listening/viewing data)
 static/map-pieces/*.png
+static/map-pieces/prompts.md
 
 # Python
 __pycache__/
@@ -40,7 +42,14 @@ build/
 
 # Test artifacts (contain local absolute paths)
 evals/raw/
+evals/artifacts/
 test-results/
+
+# Dependencies
+node_modules/
+
+# Supabase local dev artifacts
+supabase/
 
 # Logs
 *.log
