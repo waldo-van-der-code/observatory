@@ -1129,7 +1129,7 @@ ANSWER STYLE:
 # ── Oracle history ─────────────────────────────────────────────────────────────
 
 @app.get("/api/oracle/history")
-def api_oracle_history(limit: int = Query(default=20, le=100)):
+def api_oracle_history(limit: int = Query(default=20, ge=1, le=100)):
     with get_conn() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS oracle_conversations (
