@@ -50,6 +50,30 @@
   }
 
   /* ── Map ── */
+  /* ── Chapters banner ── */
+  #chapters-link {
+    text-align: center;
+    padding: 0.4rem 1rem 0.6rem;
+  }
+  #chapters-link a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-family: 'Cinzel', serif;
+    font-size: 0.72rem;
+    letter-spacing: 0.09em;
+    color: var(--text-muted);
+    text-decoration: none;
+    border: 1px solid rgba(138,154,122,0.3);
+    border-radius: 20px;
+    padding: 0.28rem 0.9rem;
+    transition: color 0.18s, border-color 0.18s;
+  }
+  #chapters-link a:hover {
+    color: var(--text);
+    border-color: rgba(138,154,122,0.7);
+  }
+
   #map-view {
     display: flex;
     justify-content: center;
@@ -239,6 +263,12 @@
 </header>
 
 <div id="loading-overlay"><span>Loading…</span></div>
+
+<div id="chapters-link">
+  <a href="https://waldo.vanderlore.de/culture/chapters" target="_blank" rel="noopener">
+    ✦ Life Chapters
+  </a>
+</div>
 
 <div id="map-view">
   <div id="map-outer">
