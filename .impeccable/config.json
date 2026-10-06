@@ -59,6 +59,33 @@
           "static/picks.html"
         ],
         "createdAt": "2026-09-29T22:21:53.316Z"
+      },
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "/Users/waldo.vanderhaeghen/Documents/AI-projects-personal/Fun!/entertainment/brain.html"
+        ],
+        "createdAt": "2026-10-06T19:57:16.983Z",
+        "reason": "game board arrow decorations — intentional gold glow on felt background, ported from user-designed culture/chapters.astro"
+      },
+      {
+        "rule": "low-contrast",
+        "value": "*",
+        "files": [
+          "/Users/waldo.vanderhaeghen/Documents/AI-projects-personal/Fun!/entertainment/brain.html"
+        ],
+        "createdAt": "2026-10-06T19:59:07.809Z",
+        "reason": "game board card design ported from user's own culture/chapters.astro — warm parchment palette, user confirmed"
+      },
+      {
+        "rule": "tiny-text",
+        "value": "*",
+        "files": [
+          "/Users/waldo.vanderhaeghen/Documents/AI-projects-personal/Fun!/entertainment/brain.html"
+        ],
+        "createdAt": "2026-10-06T19:59:07.824Z",
+        "reason": "game board card compact text ported from user's own culture/chapters.astro — intentional dense card format"
       }
     ]
   }
