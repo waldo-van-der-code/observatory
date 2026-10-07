@@ -58,7 +58,8 @@
         "files": [
           "static/picks.html"
         ],
-        "createdAt": "2026-09-29T22:21:53.316Z"
+        "createdAt": "2026-09-29T22:21:53.316Z",
+        "reason": "Waldo confirmed: replaced cream with deliberate dark navy palette (#0b151f)"
       },
       {
         "rule": "dark-glow",
@@ -86,6 +87,24 @@
         ],
         "createdAt": "2026-10-06T19:59:07.824Z",
         "reason": "game board card compact text ported from user's own culture/chapters.astro — intentional dense card format"
+      },
+      {
+        "rule": "undersized-ui-text",
+        "value": "*",
+        "files": [
+          "/Users/waldo.vanderhaeghen/Documents/AI-projects-personal/Fun!/entertainment/brain.html"
+        ],
+        "createdAt": "2026-10-06T20:01:24.862Z",
+        "reason": "game board card labels (<11px) ported from user's own culture/chapters.astro — intentional compact card format"
+      },
+      {
+        "rule": "all-caps-body",
+        "value": "*",
+        "files": [
+          "/Users/waldo.vanderhaeghen/Documents/AI-projects-personal/Fun!/entertainment/brain.html"
+        ],
+        "createdAt": "2026-10-06T20:01:24.895Z",
+        "reason": "game board title and media labels — short decorative uppercase, not long body passages, ported from user's own culture/chapters.astro"
       }
     ]
   }
