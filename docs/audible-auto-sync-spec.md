@@ -36,3 +36,19 @@ When Waldo finishes an audiobook on Audible, Observatory gets it without manual 
 
 ## Decision needed from Waldo
 Go with Option A? And poll cadence (hourly vs daily)?
+
+## Implementation status (scaffold built, NOT yet installed on oracle)
+Decided: Option A, daily poll. Files: `scripts/audible_login.py` (one-time auth), `scripts/sync_audible.py` (fetch + merge + write `data/raw/audible_finished.csv` + run `ingest_audible`; `--dry-run` supported), `scripts/sync_audible_cron.sh` (cron wrapper, logs to `~/logs/audible-sync.log`).
+`sync_audible.py` merges existing DB audible rows into the CSV first, because `ingest_audible.main()` deletes all `source='audible'` rows before reinserting.
+Not yet tested against a real account (needs the login below).
+
+### Install on oracle (needs Waldo)
+```bash
+ssh oracle
+python3 -m venv ~/audible-env && ~/audible-env/bin/pip install audible
+cd ~/observatory && ~/audible-env/bin/python3 scripts/audible_login.py   # the one auth command
+~/audible-env/bin/python3 scripts/sync_audible.py --dry-run             # inspect before first real run
+# then cron (06:00 Berlin; oracle TZ must be checked): 
+# 0 6 * * * /home/ubuntu/observatory/scripts/sync_audible_cron.sh
+```
+Add `audible` to `requirements.txt` only if the oracle service venv is reused.
