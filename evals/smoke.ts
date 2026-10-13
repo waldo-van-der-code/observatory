@@ -109,14 +109,25 @@ const checks: Check[] = [
     url: "/api/search?q=inception&type=film",
     expectedStatus: 200,
     validate: (_, body) =>
-      Array.isArray(body) ? null : `expected array, got ${typeof body}`,
+      Array.isArray(body?.results) ? null : `expected {results: []}, got ${typeof body}`,
   },
   {
-    label: "GET /api/search?q=dune&type=all — returns JSON array",
+    label: "GET /api/search?q=dune&type=all — returns {results: []}",
     url: "/api/search?q=dune&type=all",
     expectedStatus: 200,
     validate: (_, body) =>
-      Array.isArray(body) ? null : `expected array, got ${typeof body}`,
+      Array.isArray(body?.results) ? null : `expected {results: []}, got ${typeof body}`,
+  },
+  {
+    // Regression OBS: Open Library latency is bimodal; one slow call used to hit the 8 s cap
+    // and the exception was swallowed, so "flybot" returned zero results.
+    label: "GET /api/search?q=flybot&type=book — finds GEORGE the Flybot",
+    url: "/api/search?q=flybot&type=book",
+    expectedStatus: 200,
+    validate: (_, body) =>
+      (body?.results ?? []).some((r: any) => /flybot/i.test(r.title))
+        ? null
+        : `no flybot result (errors: ${JSON.stringify(body?.errors)})`,
   },
   {
     label: "GET /api/watchlist — returns JSON array (empty [] on fresh DB is fine)",
