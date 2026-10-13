@@ -14,6 +14,9 @@ TMDB_BASE = "https://api.themoviedb.org/3"
 TMDB_IMG = "https://image.tmdb.org/t/p/w185"
 OL_BASE = "https://openlibrary.org"
 OL_COVER = "https://covers.openlibrary.org/b/id/{}-M.jpg"
+OL_ATTEMPTS = 4
+OL_HEDGE_DELAY = 4.0
+OL_TOTAL_TIMEOUT = 25.0
 
 
 def _tmdb_key() -> str:
@@ -112,13 +115,45 @@ async def _search_tmdb(client: httpx.AsyncClient, api_key: str, query: str,
     return results
 
 
+async def _hedged_get(client: httpx.AsyncClient, url: str, params: dict) -> httpx.Response | None:
+    """Return the first HTTP 200 among staggered duplicate requests, or None."""
+    async def one() -> httpx.Response | None:
+        try:
+            r = await client.get(url, params=params, timeout=OL_TOTAL_TIMEOUT)
+            return r if r.status_code == 200 else None
+        except httpx.HTTPError:
+            return None
+
+    pending: set[asyncio.Task] = set()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + OL_TOTAL_TIMEOUT
+    try:
+        for i in range(OL_ATTEMPTS):
+            pending.add(asyncio.create_task(one()))
+            wait = min(OL_HEDGE_DELAY, deadline - loop.time()) if i < OL_ATTEMPTS - 1 else deadline - loop.time()
+            while pending and wait > 0:
+                start = loop.time()
+                done, pending = await asyncio.wait(pending, timeout=wait,
+                                                   return_when=asyncio.FIRST_COMPLETED)
+                for t in done:
+                    if (res := t.result()) is not None:
+                        return res
+                wait -= loop.time() - start
+        return None
+    finally:
+        for t in pending:
+            t.cancel()
+
+
 async def _search_openlibrary(client: httpx.AsyncClient, query: str,
                                existing_ids: set[str]) -> list[dict]:
-    params = {"q": query, "limit": 6, "fields": "key,title,author_name,first_publish_year,subject,cover_i,ia"}
-    r = await client.get(f"{OL_BASE}/search.json", params=params)
-    if r.status_code != 200:
-        return []
-
+    params = {"q": query, "limit": 6, "fields": "key,title,author_name,first_publish_year,subject,cover_i"}
+    # Open Library latency is erratic (1-25 s for the same query). Hedge: start a new
+    # attempt every OL_HEDGE_DELAY s without cancelling earlier ones, take the first
+    # 200. Regression: "flybot" returned nothing because one slow call hit the 8 s cap.
+    r = await _hedged_get(client, f"{OL_BASE}/search.json", params)
+    if r is None:
+        raise RuntimeError("Open Library timed out")
     results = []
     for doc in r.json().get("docs", [])[:6]:
         work_key = doc.get("key", "")
@@ -154,6 +189,62 @@ async def _search_openlibrary(client: httpx.AsyncClient, query: str,
             "watchlist": False,
             "rating": None,
         })
+    return results
+
+
+async def _search_googlebooks(client: httpx.AsyncClient, query: str,
+                              existing_ids: set[str]) -> list[dict]:
+    """Fallback book source for when Open Library is slow or down (0.3 s typical)."""
+    r = await client.get("https://www.googleapis.com/books/v1/volumes",
+                         params={"q": query, "maxResults": 6, "printType": "books"})
+    if r.status_code != 200:
+        raise RuntimeError(f"Google Books HTTP {r.status_code}")
+    results = []
+    for it in r.json().get("items", [])[:6]:
+        info = it.get("volumeInfo", {})
+        db_id = f"gb:{it['id']}"
+        if db_id in existing_ids:
+            continue
+        authors = info.get("authors") or []
+        author = authors[0] if authors else None
+        year_str = (info.get("publishedDate") or "")[:4]
+        year = int(year_str) if year_str.isdigit() else None
+        cover = (info.get("imageLinks") or {}).get("thumbnail", "").replace("http://", "https://")
+        results.append({
+            "id": db_id,
+            "source": "googlebooks",
+            "source_id": it["id"],
+            "media_type": "book",
+            "title": info.get("title", ""),
+            "subtitle": f"{author} · {year}" if author and year else (author or str(year or "")),
+            "author": author,
+            "director": None,
+            "year": year,
+            "genres": (info.get("categories") or [])[:4],
+            "description": info.get("description", ""),
+            "cover_url": cover,
+            "imdb_id": None,
+            "watchlist": False,
+            "rating": None,
+        })
+    return results
+
+
+async def _search_books(client: httpx.AsyncClient, query: str,
+                        existing_ids: set[str]) -> list[dict]:
+    """Open Library first (canonical ids); Google Books if it fails or finds nothing."""
+    ol_error: Exception | None = None
+    try:
+        results = await _search_openlibrary(client, query, existing_ids)
+        if results:
+            return results
+    except Exception as e:
+        ol_error = e
+    results = await _search_googlebooks(client, query, existing_ids)
+    if not results and ol_error:
+        raise ol_error  # don't turn an Open Library outage into a plain "No results"
+    for r in results:
+        r["_fallback"] = bool(ol_error)  # keep fallback results out of the cache
     return results
 
 
@@ -237,12 +328,22 @@ async def _search_itunes_podcast(client: httpx.AsyncClient, query: str,
         return []
 
 
+_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
+_CACHE_TTL = 600.0
+
+
 async def search(query: str, media_type: str = "all",
                  existing_ids: set[str] | None = None,
-                 page: int = 1) -> list[dict]:
+                 page: int = 1, errors: list[str] | None = None) -> list[dict]:
     """Fan out to TMDB, Open Library, MusicBrainz, and iTunes in parallel."""
     if existing_ids is None:
         existing_ids = set()
+
+    # existing_ids is always empty for API calls, so caching by query is safe.
+    cache_key = (query.strip().lower(), media_type, page)
+    hit = _CACHE.get(cache_key)
+    if hit and not existing_ids and asyncio.get_running_loop().time() - hit[0] < _CACHE_TTL:
+        return [dict(i) for i in hit[1]]
 
     api_key = _tmdb_key()
     timeout = httpx.Timeout(8.0)
@@ -252,7 +353,7 @@ async def search(query: str, media_type: str = "all",
         if media_type in ("all", "film", "tv"):
             tasks.append(_search_tmdb(client, api_key, query, media_type, existing_ids, page=page))
         if media_type in ("all", "book"):
-            tasks.append(_search_openlibrary(client, query, existing_ids))
+            tasks.append(_search_books(client, query, existing_ids))
         if media_type in ("music",):
             tasks.append(_search_musicbrainz(client, query, existing_ids))
         if media_type in ("podcast",):
@@ -264,4 +365,10 @@ async def search(query: str, media_type: str = "all",
     for chunk in results_nested:
         if isinstance(chunk, list):
             combined.extend(chunk)
-    return combined
+        elif errors is not None:
+            errors.append(str(chunk) or type(chunk).__name__)
+    if combined and not existing_ids and not any(c.get("_fallback") for c in combined) and all(isinstance(c, list) for c in results_nested):
+        _CACHE[cache_key] = (asyncio.get_running_loop().time(), combined)
+        if len(_CACHE) > 200:
+            _CACHE.pop(next(iter(_CACHE)))
+    return [{k: v for k, v in i.items() if k != "_fallback"} for i in combined]

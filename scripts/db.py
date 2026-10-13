@@ -231,7 +231,7 @@ def get_watchlist(conn: sqlite3.Connection) -> list[dict]:
         FROM media_items m
         JOIN user_interactions ui ON ui.media_id = m.id
         WHERE ui.shelf IN ('to-watch', 'to-read')
-          AND m.source IN ('tmdb', 'openlibrary')
+          AND m.source IN ('tmdb', 'openlibrary', 'googlebooks')
         ORDER BY ui.date_added DESC
     """).fetchall()
     result = []

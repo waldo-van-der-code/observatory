@@ -2080,6 +2080,7 @@ let _searchHasMore = false;
 let _activeFilter = 'all';
 
 // ── Search ─────────────────────────────────────────────────────────────────
+let _searchErrors = [];
 async function doSearch(page) {{
   const q = document.getElementById('nav-search-input').value.trim();
   if (!q) return;
@@ -2103,6 +2104,7 @@ async function doSearch(page) {{
     const data = await r.json();
     _lastResults = data.results || data;
     _searchHasMore = data.has_more || false;
+    _searchErrors = data.errors || [];
 
     _activeFilter = 'all';
     document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
@@ -2143,7 +2145,7 @@ function renderFiltered(type, items, q) {{
   const filtered = type === 'all' ? items : items.filter(i => i.media_type === type);
   const label = q || document.getElementById('nav-search-input').value.trim();
   document.getElementById('search-status').textContent =
-    filtered.length ? `${{filtered.length}} result${{filtered.length>1?'s':''}} for "${{label}}"` : `No results for "${{label}}"`;
+    filtered.length ? `${{filtered.length}} result${{filtered.length>1?'s':''}} for "${{label}}"` : (_searchErrors.length ? `No results for "${{label}}" (a source timed out, try again)` : `No results for "${{label}}"`);
   document.getElementById('search-results-list').innerHTML = filtered.map(renderResultCard).join('');
   wireResultCards();
 }}

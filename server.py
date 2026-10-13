@@ -82,7 +82,7 @@ def _get_user_state(conn) -> tuple[set[str], dict[str, float | None]]:
     rated_rows = conn.execute("""
         SELECT m.id, ui.rating FROM media_items m
         JOIN user_interactions ui ON ui.media_id = m.id
-        WHERE ui.rating IS NOT NULL AND m.source IN ('tmdb', 'openlibrary')
+        WHERE ui.rating IS NOT NULL AND m.source IN ('tmdb', 'openlibrary', 'googlebooks')
     """).fetchall()
     ratings = {r["id"]: r["rating"] for r in rated_rows}
     return wl_ids, ratings
@@ -103,7 +103,8 @@ async def api_search(
     finally:
         conn.close()
 
-    results = await search(q, media_type=type, existing_ids=set(), page=page)
+    errors: list[str] = []
+    results = await search(q, media_type=type, existing_ids=set(), page=page, errors=errors)
 
     for item in results:
         item["watchlist"] = item["id"] in wl_ids
@@ -112,7 +113,7 @@ async def api_search(
     # has_more: if we got a full page of results from TMDB (20), there's likely a next page
     has_more = len([r for r in results if r.get("source") == "tmdb"]) >= 20
 
-    return JSONResponse({"results": results, "page": page, "has_more": has_more})
+    return JSONResponse({"results": results, "page": page, "has_more": has_more, "errors": errors})
 
 
 # ── Write: upsert item ────────────────────────────────────────────────────────
@@ -387,6 +388,35 @@ async def api_detail(item_id: str):
             "goodreads_url": goodreads,
             "audible_url": audible,
             "ol_url": f"https://openlibrary.org/works/{work_id}",
+        })
+
+    # ── Google Books (fallback source when Open Library is down) ─────────────
+    if item_id.startswith("gb:"):
+        from urllib.parse import quote
+        try:
+            async with _httpx.AsyncClient(timeout=timeout) as client:
+                gb_r = await client.get(f"https://www.googleapis.com/books/v1/volumes/{quote(item_id[3:], safe='')}")
+        except _httpx.HTTPError:
+            return JSONResponse({"error": "upstream unavailable"}, 502)
+        if gb_r.status_code != 200:
+            return JSONResponse({"error": "not found"}, 404)
+        info = gb_r.json().get("volumeInfo", {})
+        from urllib.parse import quote_plus
+        title = info.get("title", "")
+        author_name = (info.get("authors") or [""])[0]
+        cover = (info.get("imageLinks") or {}).get("thumbnail", "").replace("http://", "https://")
+        return JSONResponse({
+            "id": item_id,
+            "media_type": "book",
+            "title": title,
+            "author": author_name,
+            "year": (info.get("publishedDate") or "")[:4],
+            "description": info.get("description", ""),
+            "subjects": (info.get("categories") or [])[:8],
+            "cover_url": cover,
+            "goodreads_url": f"https://www.goodreads.com/search?q={quote_plus(title)}",
+            "audible_url": f"https://www.audible.de/search?keywords={quote_plus(f'{title} {author_name}'.strip())}",
+            "ol_url": info.get("infoLink", ""),
         })
 
     return JSONResponse({"error": "unknown item type"}, 400)
