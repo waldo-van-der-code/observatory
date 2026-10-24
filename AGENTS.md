@@ -12,9 +12,19 @@ Covers: Spotify streaming history, Goodreads, IMDB, Netflix, JustWatch, Audible,
 - URL: **https://observatory.vanderlore.de** — HTTP basic auth (user: waldo, pw in keychain)
 - Host: oracle (`/home/ubuntu/observatory/`), systemd service `observatory.service`
 - Port: 8088 (proxied by nginx)
-- **Deploy script**: `./scripts/deploy.sh` — git push → oracle pull + build → health-check all 5 pages → auto-rollback on failure. **Always use this; never rsync or restart manually.**
-- Health-checked pages: `/`, `/brain`, `/ask`, `/picks`, `/api/recs`
+- **Deploy script**: `./scripts/deploy.sh` — offline evals → git push → oracle pull + build → health-check all 5 pages → auto-rollback on failure → Oracle probe (warn only). **Always use this; never rsync or restart manually.**
+- Health-checked pages: `/`, `/brain`, `/ask`, `/picks`, `/api/recs` — fetched on oracle via `127.0.0.1:8088` (no password in the script; the repo is public). The public URL must answer 401.
 - `dashboard.html` is always built on oracle (never rsynced) to protect personal data gitignore
+
+## Oracle auth + monitoring (OBS-048)
+
+Ask the Oracle shells out to the `claude` CLI on oracle (Claude Code subscription, no API key).
+- **Auth:** long-lived token from `claude setup-token` (valid 1 year) stored in `~/.secrets/claude-code-oauth-token` on oracle (mode 600); `server.py` passes it as `CLAUDE_CODE_OAUTH_TOKEN`. The plain `claude /login` OAuth session expired after ~2 weeks and broke Ask from ~2026-10 until 2026-10-24.
+- **Renew:** `ssh -t oracle` → `claude setup-token` → write the printed token into that file. No service restart needed (read per call). The file's mtime is the token age.
+- **Health:** `GET /api/oracle/health` runs a one-word haiku probe (success cached 30 min, `?fresh=1` bypasses). 503 when the CLI fails or the token is >335 days old.
+- **Monitoring:** oracle `~/scripts/uptime-monitor.py` (every 10 min) checks "Observatory" (public 401 + local pages) and "Observatory Oracle (Ask)" (the health endpoint); Telegram alerts topic after 2 failed runs.
+- **Evals:** `evals/test_oracle.py` (offline, fake CLIs, run by deploy.sh) and the live `/api/oracle/health` check in `evals/smoke.ts`.
+- The CLI prints auth errors to **stdout**, not stderr — always read both.
 
 ## Git & deploy
 

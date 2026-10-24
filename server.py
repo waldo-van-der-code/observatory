@@ -948,6 +948,99 @@ def api_recs_update(rec_id: int, body: RecStatusIn):
     return {"ok": True}
 
 
+# ── Claude CLI (shared by Ask Oracle + its health probe) ──────────────────────
+
+# Long-lived token from `claude setup-token` (1 year). Without it the CLI falls back to the
+# interactive OAuth login in ~/.claude, which expired on oracle and broke the Oracle (OBS-048).
+CLAUDE_TOKEN_FILE = Path(os.environ.get("OBS_CLAUDE_TOKEN_FILE", Path.home() / ".secrets" / "claude-code-oauth-token"))
+CLAUDE_TOKEN_MAX_AGE_DAYS = 335  # warn a month before the 1-year token runs out
+ORACLE_HEALTH_TTL = 1800         # cache a successful probe for 30 min; failures always re-probe
+_oracle_health_ok_at = 0.0
+
+
+def _claude_cli() -> str | None:
+    import shutil
+    cli = os.environ.get("OBS_CLAUDE_CLI") or shutil.which("claude") or "/home/ubuntu/.nvm/versions/node/v22.23.2/bin/claude"
+    return cli if os.path.isfile(cli) else None
+
+
+def _claude_env() -> dict:
+    env = dict(os.environ)
+    if CLAUDE_TOKEN_FILE.is_file():
+        token = CLAUDE_TOKEN_FILE.read_text().strip()
+        if token:
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = token
+    return env
+
+
+def _claude_error_detail(rc: int, stdout: bytes, stderr: bytes) -> str:
+    # The CLI prints auth failures to stdout with an empty stderr; reading only stderr hid the cause.
+    raw = (stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip())[:300]
+    if "authenticate" in raw.lower() or "login" in raw.lower():
+        return (f"The Oracle's Claude login on the server has expired ({raw}). "
+                "Renew it on oracle with `claude setup-token` (see AGENTS.md → Oracle auth).")
+    return f"Claude CLI error (rc={rc}): {raw or 'no output'}"
+
+
+async def _run_claude(prompt: str, system: str, model: str, timeout: float) -> tuple[int, bytes, bytes]:
+    """Run the Claude CLI isolated from local settings/tools. Raises HTTPException on missing CLI or timeout."""
+    import asyncio, tempfile
+
+    cli = _claude_cli()
+    if not cli:
+        raise HTTPException(503, "claude CLI not found — is Claude Code installed on this server?")
+    isolation_flags = [
+        "--tools", "", "--strict-mcp-config", "--setting-sources", "local",
+        "--disable-slash-commands", "--no-session-persistence",
+    ]
+    command = [cli, "-p", "--model", model, "--system-prompt", system, *isolation_flags]
+
+    with tempfile.TemporaryDirectory(prefix="observatory-oracle-") as tmpdir:
+        proc = await asyncio.create_subprocess_exec(
+            *command,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=tmpdir,
+            env=_claude_env(),
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(input=prompt.encode()), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise HTTPException(504, "Oracle timed out — try a shorter question")
+    return proc.returncode, stdout, stderr
+
+
+@app.get("/api/oracle/health")
+async def api_oracle_health(fresh: bool = False):
+    """End-to-end probe of the Oracle's Claude CLI. 200 = it answers, 503 = Ask will fail.
+    Polled by oracle's uptime-monitor.py and by scripts/deploy.sh (fresh=1)."""
+    import time
+    global _oracle_health_ok_at
+
+    token_age = None
+    if CLAUDE_TOKEN_FILE.is_file():
+        token_age = round((time.time() - CLAUDE_TOKEN_FILE.stat().st_mtime) / 86400)
+        if token_age > CLAUDE_TOKEN_MAX_AGE_DAYS:
+            return JSONResponse({"ok": False, "token_age_days": token_age,
+                                 "error": f"Claude token is {token_age} days old and expires soon. Renew it with `claude setup-token` on oracle."},
+                                status_code=503)
+
+    if not fresh and time.time() - _oracle_health_ok_at < ORACLE_HEALTH_TTL:
+        return JSONResponse({"ok": True, "cached": True, "token_age_days": token_age})
+    try:
+        rc, out, err = await _run_claude("Reply with the single word: ok", "You are a health check.", "haiku", 60.0)
+    except HTTPException as e:
+        return JSONResponse({"ok": False, "token_age_days": token_age, "error": e.detail}, status_code=503)
+    if rc != 0 or not out.strip():
+        return JSONResponse({"ok": False, "token_age_days": token_age, "error": _claude_error_detail(rc, out, err)},
+                            status_code=503)
+    _oracle_health_ok_at = time.time()
+    return JSONResponse({"ok": True, "cached": False, "token_age_days": token_age})
+
+
 # ── Ask Oracle ────────────────────────────────────────────────────────────────
 
 @app.get("/ask", response_class=FileResponse)
@@ -963,13 +1056,7 @@ class AskIn(BaseModel):
 
 @app.post("/api/ask")
 async def api_ask(body: AskIn):
-    import asyncio, shutil, tempfile
-
-    # Use claude CLI on the Claude Code subscription — same pattern as steuermentoring-poc
-    cli = shutil.which("claude") or "/home/ubuntu/.nvm/versions/node/v22.23.2/bin/claude"
-    if not os.path.isfile(cli):
-        raise HTTPException(503, "claude CLI not found — is Claude Code installed on this server?")
-
+    # Uses the claude CLI on the Claude Code subscription — same pattern as steuermentoring-poc
     # Build context from DB
     conn = get_conn()
     try:
@@ -1106,32 +1193,11 @@ ANSWER STYLE:
 - For films: IMDB score and streaming availability in DE is useful when relevant
 - You cover ALL entertainment domains, not just films — ask about comics, audiobooks, podcasts too"""
 
-    isolation_flags = [
-        "--tools", "", "--strict-mcp-config", "--setting-sources", "local",
-        "--disable-slash-commands", "--no-session-persistence",
-    ]
-    command = [cli, "-p", "--model", "sonnet", "--system-prompt", system, *isolation_flags]
-
-    with tempfile.TemporaryDirectory(prefix="observatory-oracle-") as tmpdir:
-        proc = await asyncio.create_subprocess_exec(
-            *command,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=tmpdir,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(input=body.question.encode()),
-                timeout=60.0,
-            )
-        except asyncio.TimeoutError:
-            proc.kill()
-            raise HTTPException(504, "Oracle timed out — try a shorter question")
-
-    if proc.returncode != 0:
-        err = stderr.decode(errors="replace")[:300]
-        raise HTTPException(502, f"Claude CLI error (rc={proc.returncode}): {err}")
+    returncode, stdout, stderr = await _run_claude(body.question, system, "sonnet", 60.0)
+    if returncode != 0:
+        detail = _claude_error_detail(returncode, stdout, stderr)
+        print(f"[oracle] /api/ask failed: {detail}", file=sys.stderr, flush=True)
+        raise HTTPException(502, detail)
 
     answer = stdout.decode(errors="replace").strip()
 

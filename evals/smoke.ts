@@ -130,6 +130,14 @@ const checks: Check[] = [
         : `no flybot result (errors: ${JSON.stringify(body?.errors)})`,
   },
   {
+    // Regression OBS-048: the Oracle's Claude login expired and Ask failed for weeks unnoticed.
+    // Live probe: runs the real claude CLI once (haiku, one word).
+    label: "GET /api/oracle/health?fresh=1 — Oracle's Claude CLI answers",
+    url: "/api/oracle/health?fresh=1",
+    expectedStatus: 200,
+    validate: (_, body: any) => (body?.ok === true ? null : `oracle unhealthy: ${JSON.stringify(body)}`),
+  },
+  {
     label: "GET /api/watchlist — returns JSON array (empty [] on fresh DB is fine)",
     url: "/api/watchlist",
     expectedStatus: 200,

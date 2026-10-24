@@ -8,13 +8,18 @@ ORACLE_DIR="/home/ubuntu/observatory"
 SERVICE="observatory"
 PAGES=("/" "/brain" "/ask" "/picks" "/api/recs")
 BASE_URL="https://observatory.vanderlore.de"
-AUTH="waldo:***REMOVED***"
+LOCAL_URL="http://127.0.0.1:8088"   # pages are checked on oracle itself, behind nginx basic auth (no password here)
 
 # ── 1. Refuse dirty tree ───────────────────────────────────────────────────────
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "ERROR: Local git tree is dirty. Commit or stash before deploying." >&2
   exit 1
 fi
+
+# ── 1b. Offline regression evals (fake claude CLI, no server needed) ───────────
+echo "→ Running offline evals..."
+"${OBS_PYTHON:-$HOME/Library/Scripts/entertainment-env/bin/python}" evals/test_oracle.py > /dev/null 2>&1 \
+  || { echo "ERROR: evals/test_oracle.py failed — run it to see why." >&2; exit 1; }
 
 # ── 2. Push ────────────────────────────────────────────────────────────────────
 echo "→ Pushing to GitHub..."
@@ -57,8 +62,21 @@ REMOTE
 # ── 4. Health checks ──────────────────────────────────────────────────────────
 echo "→ Health-checking live pages..."
 ALL_OK=true
+# Every curl below ends in `|| true`: under set -e a refused connection would exit before the rollback.
+PUBLIC=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/" || true)
+if [ "$PUBLIC" != "401" ]; then
+  # Warn only: nginx/tunnel problems are not fixed by rolling back the app
+  echo "  ⚠️  public $BASE_URL/ → HTTP ${PUBLIC:-none} (expected 401 from the basic-auth gate)" >&2
+else
+  echo "  OK   public auth gate → 401"
+fi
 for path in "${PAGES[@]}"; do
-  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -u "$AUTH" "$BASE_URL$path")
+  STATUS=""
+  for _ in 1 2 3 4 5; do  # uvicorn may still be starting
+    STATUS=$(ssh oracle "curl -s -o /dev/null -w '%{http_code}' '$LOCAL_URL$path'" || true)
+    [ "$STATUS" = "200" ] && break
+    sleep 2
+  done
   if [ "$STATUS" != "200" ]; then
     echo "  FAIL $path → HTTP $STATUS" >&2
     ALL_OK=false
@@ -90,6 +108,16 @@ echo "  Rollback complete"
 ROLLBACK
   echo "→ Rollback complete. Deploy FAILED." >&2
   exit 1
+fi
+
+# ── 6. Oracle (Ask) end-to-end probe — warn only: a rollback can't fix an expired Claude login ──
+ORACLE=$(ssh oracle "curl -s -m 90 '$LOCAL_URL/api/oracle/health?fresh=1'" || true)
+if echo "$ORACLE" | grep -q '"ok":true'; then
+  echo "  OK   oracle answers ($ORACLE)"
+else
+  echo "" >&2
+  echo "  ⚠️  ORACLE IS BROKEN — Ask will fail: $ORACLE" >&2
+  echo "  ⚠️  Fix: see AGENTS.md → Oracle auth" >&2
 fi
 
 echo "→ Deploy complete ✓"
