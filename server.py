@@ -10,14 +10,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "scripts"))
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api_search import _tmdb_key, search
 from db import get_conn, get_watchlist, get_or_create_item, init_db
+import oracle_actions
 
 DASHBOARD    = Path(__file__).parent / "dashboard.html"
 ASK_HTML     = Path(__file__).parent / "ask-oracle.html"
@@ -47,6 +48,10 @@ app.add_middleware(
 def _startup():
     with get_conn() as conn:
         init_db(conn)
+        oracle_actions.init_table(conn)
+    # Finish any Oracle changes still waiting for their security review (OBS-050)
+    import asyncio
+    asyncio.get_running_loop().create_task(oracle_actions.process_queue(get_conn, _run_claude))
     if not _tmdb_key():
         print(
             "\n⚠️  TMDB_API_KEY not found. Film/TV search will be disabled.\n"
@@ -1050,12 +1055,18 @@ def ask_page():
     raise HTTPException(404, "ask-oracle.html not found")
 
 
+class AskTurn(BaseModel):
+    question: str = Field("", max_length=20000)  # trimmed to 1500 chars below
+    answer: str = Field("", max_length=20000)
+
+
 class AskIn(BaseModel):
-    question: str
+    question: str = Field(..., min_length=1, max_length=4000)
+    history: list[AskTurn] = Field(default_factory=list)  # earlier turns of this chat, oldest first
 
 
 @app.post("/api/ask")
-async def api_ask(body: AskIn):
+async def api_ask(body: AskIn, background: BackgroundTasks):
     # Uses the claude CLI on the Claude Code subscription — same pattern as steuermentoring-poc
     # Build context from DB
     conn = get_conn()
@@ -1191,17 +1202,26 @@ ANSWER STYLE:
 - Short and direct — no filler, no hedging
 - When recommending: give title, year/author, one reason tied to something already rated
 - For films: IMDB score and streaming availability in DE is useful when relevant
-- You cover ALL entertainment domains, not just films — ask about comics, audiobooks, podcasts too"""
+- You cover ALL entertainment domains, not just films — ask about comics, audiobooks, podcasts too
+{oracle_actions.ORACLE_INSTRUCTIONS}"""
 
-    returncode, stdout, stderr = await _run_claude(body.question, system, "sonnet", 60.0)
+    history = [{"question": t.question[:1500], "answer": t.answer[:1500]} for t in body.history[-4:]]
+    prompt = body.question
+    if history:
+        earlier = "\n\n".join(f"Waldo: {t['question'][:1500]}\nOracle: {t['answer'][:1500]}" for t in history)
+        prompt = f"Earlier in this conversation:\n{earlier}\n\nWaldo's latest message:\n{body.question}"
+
+    returncode, stdout, stderr = await _run_claude(prompt, system, "sonnet", 90.0)
     if returncode != 0:
         detail = _claude_error_detail(returncode, stdout, stderr)
         print(f"[oracle] /api/ask failed: {detail}", file=sys.stderr, flush=True)
         raise HTTPException(502, detail)
 
     answer = stdout.decode(errors="replace").strip()
+    conversation_id = None
 
-    # Persist to conversation history
+    # Persist to conversation history (the actions block is stripped first, below)
+    clean_answer, _, _ = oracle_actions.extract_block(answer)
     try:
         with get_conn() as hconn:
             hconn.execute("""
@@ -1212,14 +1232,49 @@ ANSWER STYLE:
                     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
                 )
             """)
-            hconn.execute(
+            conversation_id = hconn.execute(
                 "INSERT INTO oracle_conversations (question, answer) VALUES (?, ?)",
-                (body.question, answer),
-            )
+                (body.question, clean_answer),
+            ).lastrowid
     except Exception:
         pass  # history is best-effort — never fail a response because of it
 
-    return JSONResponse({"answer": answer})
+    # Proposed data changes are only queued here; a separate reviewer approves them (OBS-050)
+    with get_conn() as aconn:
+        clean_answer, actions = oracle_actions.queue_from_answer(
+            aconn, answer, body.question, history, conversation_id)
+        backlog = oracle_actions.has_queued(aconn)  # also retries earlier reviews that could not run
+    if backlog:
+        background.add_task(oracle_actions.process_queue, get_conn, _run_claude)
+
+    return JSONResponse({"answer": clean_answer, "conversation_id": conversation_id, "actions": actions})
+
+
+# ── Oracle actions (queued, security-reviewed data changes) ───────────────────
+
+@app.get("/api/oracle/actions")
+def api_oracle_actions(ids: str = "", conversation_id: int | None = None,
+                       limit: int = Query(default=50, ge=1, le=200)):
+    id_list = None
+    if ids:
+        try:
+            id_list = [int(x) for x in ids.split(",") if x.strip()][:50]
+        except ValueError:
+            raise HTTPException(400, "ids must be comma-separated numbers")
+    with get_conn() as conn:
+        return JSONResponse(oracle_actions.list_actions(conn, ids=id_list, conversation_id=conversation_id, limit=limit))
+
+
+@app.post("/api/oracle/actions/{action_id}/undo")
+def api_oracle_action_undo(action_id: int):
+    conn = get_conn()
+    try:
+        ok, msg = oracle_actions.undo(conn, action_id)
+        if not ok:
+            raise HTTPException(409, msg)
+        return JSONResponse(oracle_actions.list_actions(conn, ids=[action_id])[0])
+    finally:
+        conn.close()
 
 
 # ── Oracle history ─────────────────────────────────────────────────────────────

@@ -2,10 +2,11 @@
 """Shared database setup for the entertainment dashboard."""
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent.parent / "data" / "processed" / "entertainment.db"
+DB_PATH = Path(os.environ.get("OBS_DB_PATH") or Path(__file__).parent.parent / "data" / "processed" / "entertainment.db")
 
 
 def get_conn() -> sqlite3.Connection:

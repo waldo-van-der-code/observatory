@@ -27,6 +27,17 @@ Ask the Oracle shells out to the `claude` CLI on oracle (Claude Code subscriptio
 - **Evals:** `evals/test_oracle.py` (offline, fake CLIs, run by deploy.sh) and the live `/api/oracle/health` check in `evals/smoke.ts`.
 - The CLI prints auth errors to **stdout**, not stderr — always read both.
 
+## Oracle chat actions (OBS-050)
+
+Waldo can change his data from the Ask chat ("I've seen that, remove it from my list", "rate it 4 stars"). Code: `scripts/oracle_actions.py`; table `oracle_actions`.
+- The Oracle only *proposes*: an ```` ```observatory-actions ```` JSON block at the end of its answer, stripped before display and storage.
+- Whitelist: `rate` (0.5-5, steps of 0.5), `mark_seen` (off watchlist + pick `seen` + a `completed/seen` row), `remove_from_list` (off watchlist + pick `dismissed`). Max 5 per message. Each needs a `user_quote` that occurs in Waldo's *latest* message, or it is rejected before review.
+- The server resolves titles itself (all imports of the same work; unknown-year rows and picks only when no remake/other year exists). Unknown titles for `rate`/`mark_seen` get a new `media_items` row with `source='oracle'`.
+- A separate Sonnet call (no tools, data in one escaped JSON block) must return `{"verdict":"approve"}`; anything else is a reject. If the target changed during review it is rejected. Review failures retry on the next question, then fail after 3 tries.
+- Undo restores the before-snapshot, and is refused once the rows were changed again afterwards.
+- The chat now sends the last 4 turns (`history`) so "that"/"it" resolve.
+- Eval: `evals/test_oracle_actions.py` (offline, fake CLI, temp DB via `OBS_DB_PATH`), run by `deploy.sh`.
+
 ## Git & deploy
 
 This directory is its own git repo (`main` branch → `waldo-van-der-code/observatory`).
@@ -75,7 +86,7 @@ DB: `data/processed/entertainment.db` (SQLite, gitignored)
 - `confidence` column has mixed scales: rows 37–136 use 0–1 float; rows 137–159 use 0–100 integer. Normalise via: `conf_pct = round(conf * 100) if conf <= 1.0 else round(conf)`
 - `potential_issue` may be the literal string `"None — ..."` (LLM artifact). Strip: `if issue.lower().startswith("none"): issue = ""`
 - Status values: `pending` (default), `seen`, `dismissed`, `want`. Only `seen` and `dismissed` are hidden from the picks page.
-- **Never batch-update status from scripts** — status changes only via user clicks through the UI (`POST /api/recs/{id}`)
+- **Never batch-update status from scripts** — status changes only via user clicks through the UI (`POST /api/recs/{id}`) or via a reviewed Oracle chat action (OBS-050)
 
 ## build_dashboard.py notes
 

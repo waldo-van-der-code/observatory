@@ -129,6 +129,26 @@
     .bubble p + p { margin-top: .5rem; }
 
     /* Replayed conversation banner */
+    /* ── Queued data changes (OBS-050) ── */
+    .actions { display: flex; flex-direction: column; gap: 6px; margin: -4px 0 4px 44px; max-width: 640px; }
+    .action-card {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      background: var(--paper); border: 1.5px solid var(--border); border-left: 4px solid var(--gold);
+      border-radius: 2px; padding: 8px 12px; font-size: 13px; color: var(--ink);
+    }
+    .action-card[data-status="applied"] { border-left-color: #2e7d32; }
+    .action-card[data-status="rejected"], .action-card[data-status="failed"] { border-left-color: var(--rust); }
+    .action-card[data-status="undone"] { border-left-color: var(--ink-dim); opacity: .75; }
+    .action-summary { flex: 1; min-width: 180px; font-weight: 500; }
+    .action-status { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-dim); }
+    .action-reason { flex-basis: 100%; font-size: 12px; color: var(--ink-dim); }
+    .action-undo {
+      font: inherit; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+      background: none; border: 1.5px solid var(--border); border-radius: 2px; padding: 3px 8px;
+      cursor: pointer; color: var(--ink);
+    }
+    .action-undo:hover { border-color: var(--ink); }
+
     .replay-banner {
       background: rgba(212,146,10,.08); border: 1px solid rgba(212,146,10,.3);
       border-radius: 3px; padding: 8px 12px; font-size: .75rem; color: var(--ink-dim);
@@ -232,6 +252,7 @@ const inputEl = document.getElementById('input');
 const sendBtn = document.getElementById('send-btn');
 let _history = [];
 let _activeId = null;
+let _turns = [];  // this conversation's earlier Q/A, sent so the Oracle can resolve "that" / "it"
 
 // ── Sidebar ──────────────────────────────────────────────────────────────────
 
@@ -308,11 +329,17 @@ function replayConv(id) {
 
   addMsg(item.question, 'user');
   addMsg(item.answer, 'bot');
+  _turns = [{ question: item.question.slice(0, 3000), answer: item.answer.slice(0, 3000) }];
+  fetch(`/api/oracle/actions?conversation_id=${id}`)
+    .then(r => r.ok ? r.json() : [])
+    .then(acts => { if (_activeId === id) renderActions(acts); })
+    .catch(() => {});
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 function startNew() {
   _activeId = null;
+  _turns = [];
   renderSidebar(_history);
   document.getElementById('main-head').style.display = '';
   document.getElementById('suggestions').style.display = '';
@@ -383,7 +410,7 @@ async function sendQuestion() {
     const resp = await fetch('/api/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: q }),
+      body: JSON.stringify({ question: q, history: _turns.slice(-4) }),
     });
     removeLoader();
     if (!resp.ok) {
@@ -392,6 +419,9 @@ async function sendQuestion() {
     } else {
       const data = await resp.json();
       addMsg(data.answer || '(no answer)', 'bot');
+      _turns.push({ question: q.slice(0, 3000), answer: (data.answer || '').slice(0, 3000) });
+      _turns = _turns.slice(-4);
+      renderActions(data.actions || []);
       // Refresh sidebar so new entry appears
       await loadHistory();
     }
@@ -402,6 +432,71 @@ async function sendQuestion() {
     sendBtn.disabled = false;
     inputEl.focus();
   }
+}
+
+// ── Queued data changes: each one waits for a separate security review ───────
+
+const ACTION_LABEL = {
+  queued: 'Waiting for security review', reviewing: 'In security review', applied: 'Saved',
+  rejected: 'Not saved', failed: 'Not saved', undone: 'Undone',
+};
+
+function actionCard(a) {
+  const card = document.createElement('div');
+  card.className = 'action-card';
+  card.dataset.id = a.id;
+  card.dataset.status = a.status;
+  card.innerHTML = `<span class="action-summary">${escHtml(a.summary)}</span>
+    <span class="action-status">${escHtml(ACTION_LABEL[a.status] || a.status)}</span>
+    ${a.status === 'applied' ? '<button class="action-undo" type="button">Undo</button>' : ''}
+    ${a.reason && a.status !== 'applied' ? `<span class="action-reason">${escHtml(a.reason)}</span>` : ''}`;
+  card.querySelector('.action-undo')?.addEventListener('click', () => undoAction(a.id, card));
+  return card;
+}
+
+function renderActions(actions) {
+  if (!actions.length) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'actions';
+  actions.forEach(a => wrap.appendChild(actionCard(a)));
+  messagesEl.appendChild(wrap);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  pollActions(wrap, 0);
+}
+
+async function pollActions(wrap, n) {
+  const pending = [...wrap.querySelectorAll('.action-card')]
+    .filter(c => c.dataset.status === 'queued' || c.dataset.status === 'reviewing')
+    .map(c => c.dataset.id);
+  if (!pending.length || n > 300 || !wrap.isConnected) return;
+  // up to 5 reviews run one after another, so keep watching (3s, slowing to 15s) instead of giving up
+  await new Promise(r => setTimeout(r, Math.min(3000 * 1.2 ** n, 15000)));
+  try {
+    const r = await fetch(`/api/oracle/actions?ids=${pending.join(',')}`);
+    if (r.ok) for (const a of await r.json()) {
+      wrap.querySelector(`.action-card[data-id="${a.id}"]`)?.replaceWith(actionCard(a));
+    }
+  } catch (_) {}
+  pollActions(wrap, n + 1);
+}
+
+async function undoAction(id, card) {
+  card.querySelector('.action-undo').disabled = true;
+  try {
+    const r = await fetch(`/api/oracle/actions/${id}/undo`, { method: 'POST' });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) card.replaceWith(actionCard(data));
+    else { card.querySelector('.action-undo').disabled = false; alertInline(card, data.detail || 'Undo failed'); }
+  } catch (e) {
+    card.querySelector('.action-undo').disabled = false;
+    alertInline(card, `Could not reach the server (${e.message}); check the status before trying again.`);
+  }
+}
+
+function alertInline(card, msg) {
+  let el = card.querySelector('.action-reason');
+  if (!el) { el = document.createElement('span'); el.className = 'action-reason'; card.appendChild(el); }
+  el.textContent = msg;
 }
 
 function handleKey(e) {
