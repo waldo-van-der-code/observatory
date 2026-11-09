@@ -40,6 +40,12 @@ STALE_CLAIM = timedelta(minutes=10)
 # Which source's row wins when one work exists in several imports (new rating / "seen" row)
 SOURCE_PRIORITY = ["imdb", "goodreads", "justwatch", "netflix", "tmdb", "openlibrary",
                    "googlebooks", "audible", "pocket_casts", "manual", "oracle"]
+# Numbers the importers made up for a like, a thumb or a subscription; Waldo never gave them (OBS-053).
+INFERRED_RATINGS = {("justwatch_liked", 4.5): "liked", ("netflix", 4.0): "thumbs up",
+                    ("netflix", 1.5): "thumbs down", ("pocket_casts", 3.0): "subscribed"}
+# A real rating replacing one of those must stop looking like it, so the row's source changes too.
+RERATE_SQL = "rating=?, source=CASE WHEN " + " OR ".join(
+    f"(source='{source}' AND rating={value})" for source, value in INFERRED_RATINGS) + " THEN 'oracle' ELSE source END"
 WATCHLIST_SQL = "(interaction IN ('want','watchlist') OR shelf IN ('to-watch','to-read'))"
 BLOCK_RE = re.compile(r"```observatory-actions\s*(.*?)```", re.S)
 
@@ -357,7 +363,7 @@ def apply(conn: sqlite3.Connection, action: dict, target: dict) -> tuple[dict, d
     primary = ids[0] if ids else None
     if action["action"] == "rate":
         if any(r["rating"] is not None for r in before["interactions"]):
-            conn.execute(f"UPDATE user_interactions SET rating=? WHERE media_id IN ({_ph(ids)}) AND rating IS NOT NULL",
+            conn.execute(f"UPDATE user_interactions SET {RERATE_SQL} WHERE media_id IN ({_ph(ids)}) AND rating IS NOT NULL",
                          [action["rating"], *ids])
         else:
             conn.execute("INSERT INTO user_interactions (media_id, interaction, rating, date_added, source) VALUES (?,?,?,?,?)",

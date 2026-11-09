@@ -62,11 +62,12 @@ print("Rating discussion" if "Name this conversation" in system else "A thoughtf
             ])
         result = client.post("/api/ask", json={"question": "What did I rate Seed Film?"})
         check("fake CLI answers", result.status_code == 200, result.text)
-        system = next(json.loads(line)["system"] for line in prompts.read_text().splitlines()
-                      if "personal entertainment advisor" in json.loads(line)["system"])
-        check("Oracle film uses 8/10 and no rating stars", "Seed Film (2020) 8/10" in system and "★" not in system)
-        check("Oracle converts Netflix thumbs", "Netflix Thumb 3/10" in system)
-        check("Oracle averages keep a decimal", "avg 8.0/10" in system)
+        turn = next(json.loads(line) for line in prompts.read_text().splitlines()
+                    if "personal entertainment advisor" in json.loads(line)["system"])
+        system, data = turn["system"], turn["prompt"]
+        check("Oracle film uses out of ten and no rating stars", "Seed Film (2020) | 8" in data and "★" not in system + data)
+        check("Oracle keeps Netflix thumbs as thumbs (OBS-053)", "Netflix Thumb (2022) | thumbs down" in data)
+        check("Oracle averages keep a decimal", "average 8.0/10" in data)
         for stored, shown in [(4.0, "8/10"), (4.5, "9/10"), (3.5, "7/10")]:
             action = {"action": "rate", "title": "Seed Film", "rating": stored}
             check(f"describe {stored} as {shown}", actions.describe(action) == f"Rate Seed Film {shown}")
@@ -179,7 +180,7 @@ print("Rating discussion" if "Name this conversation" in system else "A thoughtf
             rows = [dict(r) for r in conn.execute("SELECT * FROM user_interactions WHERE media_id LIKE 'identity-%' ORDER BY id")]
             count = conn.execute("SELECT COUNT(*) FROM media_items WHERE title='Identity Book'").fetchone()[0]
             now_queued = conn.execute("SELECT COUNT(*) FROM oracle_actions").fetchone()[0]
-        expected = [r | {"rating": 3.5 if r["media_id"] in ("identity-imdb", "identity-netflix") else 4 if r["media_id"] in ("identity-book", "identity-ol") else r["rating"]} for r in history]
+        expected = [r | {"rating": 3.5 if r["media_id"] in ("identity-imdb", "identity-netflix") else 4 if r["media_id"] in ("identity-book", "identity-ol") else r["rating"], "source": "oracle" if r["media_id"] == "identity-netflix" else r["source"]} for r in history]
         check("Regression OBS-052: F3 book rating updates Goodreads and OL in place, without queue or duplicate", response.status_code == 200 and rows == expected and count == 2 and queued == now_queued, response.text)
         ambiguous = rate_work("Identity Film", "film", 5)
         check("Regression OBS-052: ambiguous work returns inline-ready 409 reason", ambiguous.status_code == 409 and "ambiguous" in ambiguous.text, ambiguous.text)
@@ -409,9 +410,9 @@ function setup(kind, rating) {
                     conn.execute("INSERT INTO user_interactions (media_id,interaction,rating,source,shelf) VALUES (?,'rated',?,?,?)", (item_id, rating, source, "read" if kind == "book" else None))
             precision_html = dashboard.render(conn)
         client.post("/api/ask", json={"question": "Compare my average film and book ratings."})
-        system = [json.loads(line)["system"] for line in prompts.read_text().splitlines()
-                  if "personal entertainment advisor" in json.loads(line)["system"]][-1]
-        check("Regression OBS-052: F4 Oracle film, director and book means round after doubling", "FILMS (4 rated via IMDB, avg 8.2/10)" in system and "Precision Director (avg 8.2/10, 4 films)" in system and "BOOKS (4 rated via Goodreads, avg 8.2/10)" in system, system)
+        data = [json.loads(line)["prompt"] for line in prompts.read_text().splitlines()
+                if "personal entertainment advisor" in json.loads(line)["system"]][-1]
+        check("Regression OBS-052: F4 Oracle film, director and book means round after doubling", "Films rated via IMDb: 4, average 8.2/10" in data and "Precision Director (avg 8.2/10, 4 films)" in data and "Books rated via Goodreads: 4, average 8.2/10" in data, data[:600])
         check("Regression OBS-052: F4 dashboard director and author means round after doubling", re.search(r"Precision Director</span></td><td>4</td><td>8.2/10", precision_html) is not None and "Precision Author</td><td>4</td><td>8.2/10" in precision_html)
         check("Regression OBS-052: F4 dashboard series and overall film means round after doubling", "4 read · avg 8.2/10" in precision_html and "4 rated · avg 8.2/10" in precision_html)
 

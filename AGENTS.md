@@ -46,6 +46,12 @@ Waldo can change his data from the Ask chat ("I've seen that, remove it from my 
 - HTML responses are `Cache-Control: no-cache`: without it Android Chrome kept running a days-old `/ask` that sent no history and drew no action cards, which looked like a dead queue.
 - Evals: `evals/test_oracle_sessions.py` (run by `deploy.sh`) and `evals/browser/oracle-sessions.spec.ts`, which writes data, so only against `evals/browser/oracle_local_server.py` with `OBS_ORACLE_LOCAL=1`. Do not use port 8011 locally: the Open Brain tunnel holds it.
 
+## What the Oracle knows (OBS-053)
+
+`scripts/oracle_lookup.py` builds, per question, a list of every seen or rated work (no episodes: their score is the show's, copied), the titles found in the latest message, and recent ratings. `ORACLE_SYSTEM` in `server.py` is static: every database string goes into the `<library-data>` block in the stdin prompt with only `<` and `>` escaped, because `&amp;` would end up in action titles.
+`oracle_actions.INFERRED_RATINGS` lists numbers the importers made up (JustWatch like 4.5, Netflix thumbs 4 and 1.5, Pocket Casts 3 for every subscription). The Oracle reports these as words. A real re-rating moves such a row to `source='oracle'` (`RERATE_SQL`), otherwise it would still read as a thumb.
+Do not run `./run.sh` ingestion on the live DB yet: `ingest_films.py` and `ingest_books.py` delete and re-insert, which overwrites ratings saved in the app or chat (OBS-054 fixes this). `/api/rate` re-ratings leave no timestamp, so they do not reach "recently rated" until then. Eval: `evals/test_oracle_lookup.py`.
+
 ## Ratings scale (OBS-052)
 
 `user_interactions.rating` and the Oracle's action JSON stay on 0.5 to 5 in half steps; everything Waldo sees is out of ten (stored x 2, doubled before rounding averages). Widgets have ten positions and save position/2. Detail panel and search save through `POST /api/rate`, which uses `oracle_actions.resolve`/`apply` so all imports of a work stay in step and keep their source and date. To the Oracle, a bare number means out of ten and "N stars" means out of five. Eval: `evals/test_ratings_out_of_ten.py`.
