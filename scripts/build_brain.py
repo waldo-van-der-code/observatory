@@ -8,8 +8,13 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+import sys
 from collections import defaultdict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+import app_ratings
+import my_ratings
 
 ROOT = Path(__file__).parent.parent
 LAYOUT_PATH = ROOT / "config" / "layout.json"
@@ -145,31 +150,29 @@ def _zone_for_item(media_type: str, genres_json: str | None, title: str) -> str 
 
 def _get_top_items(conn: sqlite3.Connection) -> dict[str, list[dict]]:
     """Return up to 8 top-rated items per zone. Poster URLs fetched lazily by the API."""
+    app_ratings.init_table(conn)
+    my_ratings.init(conn)
+    conn.commit()
     rows = conn.execute("""
-        SELECT
-            m.id, m.title, m.media_type, m.source, m.source_id,
-            m.cover_url, m.year, m.genres, m.author,
-            MAX(ui.rating) AS rating
-        FROM media_items m
-        JOIN user_interactions ui ON ui.media_id = m.id
-        WHERE m.media_type IN ('film', 'tv_show', 'book', 'audiobook')
-          AND ui.rating IS NOT NULL
-        GROUP BY m.id
-        ORDER BY rating DESC, m.year DESC
+        SELECT r.work_key, m.id, m.title, r.media_type, m.source, m.source_id,
+               m.cover_url, m.year, m.genres, m.author, r.rating
+        FROM my_ratings r JOIN media_items m ON COALESCE(m.work_key, m.id) = r.work_key
+        WHERE r.media_type IN ('film', 'tv_show', 'book', 'audiobook') AND r.rating IS NOT NULL
+        ORDER BY r.rating DESC, m.year DESC, (m.genres IS NULL OR m.genres = '[]'), m.id
     """).fetchall()
 
     zone_items: dict[str, list[dict]] = defaultdict(list)
-    seen_per_zone: dict[str, set[str]] = defaultdict(set)
+    seen_works: set[str] = set()
 
     for row in rows:
         zone = _zone_for_item(row["media_type"], row["genres"], row["title"])
         if not zone:
             continue
-        if row["id"] in seen_per_zone[zone]:
+        if row["work_key"] in seen_works:
             continue
         if len(zone_items[zone]) >= 8:
             continue
-        seen_per_zone[zone].add(row["id"])
+        seen_works.add(row["work_key"])
         zone_items[zone].append({
             "title": row["title"],
             "media_type": row["media_type"],

@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import app_ratings
+import my_ratings
 from db import get_conn, init_db
 
 OUT = Path(__file__).parent.parent / "dashboard.html"
@@ -74,21 +76,28 @@ def svg_rating_histogram(ratings: list[float], color: str = "#1a4fa0") -> str:
 def render(conn) -> str:
     # ── Data pulls ────────────────────────────────────────────────────────────
     dismissed = load_dismissed()
+    # The view may not exist yet right after a git pull (OBS-054): create it before any rating query.
+    app_ratings.init_table(conn)
+    my_ratings.init(conn)
+    conn.commit()
 
     stats = conn.execute("""
         SELECT
           sum(case when m.media_type='book' then 1 end) books,
           (SELECT count(DISTINCT media_id) FROM user_interactions WHERE source='audible') audiobooks,
           sum(case when m.media_type in ('film','movie') then 1 end) films,
-          sum(case when m.media_type='tv_show' then 1 end) shows,
-          sum(case when m.media_type in ('film','movie','tv_show')
-                    and ui.rating is not null then 1 end) films_rated
+          sum(case when m.media_type='tv_show' then 1 end) shows
         FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
         WHERE ui.interaction IN ('completed','rated')
     """).fetchone()
 
+    films_rated = conn.execute(
+        "SELECT count(*) FROM my_ratings WHERE rating IS NOT NULL AND media_type IN ('film','tv_show')"
+    ).fetchone()[0]
+
     book_ratings = [r["rating"] for r in conn.execute(
-        "SELECT rating FROM user_interactions WHERE rating IS NOT NULL AND source='goodreads'"
+        "SELECT r.rating FROM my_ratings r WHERE r.rating IS NOT NULL AND r.work_key IN "
+        "(SELECT COALESCE(m.work_key, m.id) FROM media_items m WHERE m.source='goodreads')"
     ).fetchall()]
 
     profile_row = conn.execute("SELECT * FROM taste_profile ORDER BY id DESC LIMIT 1").fetchone()
@@ -133,7 +142,10 @@ def render(conn) -> str:
 
     series_data = conn.execute("""
         SELECT series_name, count(*) read_count, min(series_pos) first_pos, max(series_pos) last_pos,
-               avg(rating) avg_rating
+               (SELECT avg(r.rating) FROM my_ratings r WHERE r.work_key IN
+                  (SELECT COALESCE(m2.work_key, m2.id) FROM media_items m2
+                   JOIN user_interactions u2 ON u2.media_id=m2.id
+                   WHERE m2.series_name=m.series_name AND u2.shelf='read')) avg_rating
         FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
         WHERE series_name IS NOT NULL AND ui.shelf='read'
         GROUP BY series_name HAVING count(*) >= 2
@@ -141,9 +153,11 @@ def render(conn) -> str:
     """).fetchall()
 
     top_authors = conn.execute("""
-        SELECT author, count(*) n, avg(rating) avg_r
-        FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
-        WHERE ui.rating IS NOT NULL AND author IS NOT NULL AND ui.source='goodreads'
+        SELECT author, count(*) n, avg(rating) avg_r FROM (
+            SELECT r.work_key, r.rating, MAX(m.author) author
+            FROM my_ratings r JOIN media_items m ON COALESCE(m.work_key, m.id) = r.work_key
+            WHERE r.rating IS NOT NULL AND m.author IS NOT NULL AND m.source='goodreads'
+            GROUP BY r.work_key)
         GROUP BY author HAVING count(*) >= 2
         ORDER BY avg_r DESC, n DESC LIMIT 8
     """).fetchall()
@@ -168,8 +182,7 @@ def render(conn) -> str:
         profile_summary = raw.get("profile_summary", "")
 
     film_ratings = [r["rating"] for r in conn.execute(
-        "SELECT rating FROM user_interactions WHERE rating IS NOT NULL "
-        "AND source IN ('imdb','justwatch_liked')"
+        "SELECT rating FROM my_ratings WHERE rating IS NOT NULL AND media_type='film'"
     ).fetchall()]
 
     # ── Films & series KPIs ───────────────────────────────────────────────────
@@ -208,9 +221,9 @@ def render(conn) -> str:
 
     # User rating distribution for films, grouped on the stored scale
     film_user_rating_dist = conn.execute("""
-        SELECT ui.rating stars, count(*) cnt
-        FROM user_interactions ui JOIN media_items m ON m.id=ui.media_id
-        WHERE m.media_type IN ('film','movie') AND ui.rating IS NOT NULL
+        SELECT rating stars, count(*) cnt
+        FROM my_ratings
+        WHERE media_type='film' AND rating IS NOT NULL
         GROUP BY stars ORDER BY stars
     """).fetchall()
 
@@ -253,10 +266,12 @@ def render(conn) -> str:
 
     # ── Podcasts ──────────────────────────────────────────────────────────────
     podcasts = conn.execute("""
-        SELECT m.title, ui.rating
+        SELECT m.title, r.rating
         FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+        LEFT JOIN my_ratings r ON r.work_key = COALESCE(m.work_key, m.id)
         WHERE m.media_type='podcast' AND ui.interaction='completed'
-        ORDER BY ui.rating DESC NULLS LAST, m.title
+        GROUP BY COALESCE(m.work_key, m.id)
+        ORDER BY r.rating DESC NULLS LAST, m.title
     """).fetchall()
 
     # ── Comics ───────────────────────────────────────────────────────────────
@@ -306,10 +321,12 @@ def render(conn) -> str:
         WHERE ui.interaction='completed'
     """).fetchone()
     recent_rated = conn.execute("""
-        SELECT m.title, m.media_type, ui.rating
+        SELECT m.title, m.media_type, r.rating, r.signal
         FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+        JOIN my_ratings r ON r.work_key = COALESCE(m.work_key, m.id)
         WHERE m.media_type IN ('film','movie','tv_show') AND ui.interaction='rated'
-        ORDER BY ui.date_completed DESC LIMIT 20
+        GROUP BY COALESCE(m.work_key, m.id)
+        ORDER BY max(ui.date_completed) DESC LIMIT 20
     """).fetchall()
 
     # ── Spotify ───────────────────────────────────────────────────────────────
@@ -597,20 +614,19 @@ def render(conn) -> str:
             pass
 
     # Directors queried live from DB (2+ rated films)
-    top_directors_by_rating = conn.execute("""
-        SELECT m.director, count(*) cnt, avg(ui.rating) avg_r
-        FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
-        WHERE m.director IS NOT NULL AND ui.rating IS NOT NULL
-          AND m.media_type IN ('film','movie')
-        GROUP BY m.director HAVING count(*) >= 2
+    director_works = """(
+        SELECT r.work_key, r.rating, MAX(m.director) director
+        FROM my_ratings r JOIN media_items m ON COALESCE(m.work_key, m.id) = r.work_key
+        WHERE r.rating IS NOT NULL AND r.media_type='film' AND m.director IS NOT NULL
+        GROUP BY r.work_key)"""
+    top_directors_by_rating = conn.execute(f"""
+        SELECT director, count(*) cnt, avg(rating) avg_r FROM {director_works}
+        GROUP BY director HAVING count(*) >= 2
         ORDER BY avg_r DESC, cnt DESC LIMIT 10
     """).fetchall()
-    top_directors_by_count = conn.execute("""
-        SELECT m.director, count(*) cnt, avg(ui.rating) avg_r
-        FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
-        WHERE m.director IS NOT NULL AND ui.rating IS NOT NULL
-          AND m.media_type IN ('film','movie')
-        GROUP BY m.director HAVING count(*) >= 4
+    top_directors_by_count = conn.execute(f"""
+        SELECT director, count(*) cnt, avg(rating) avg_r FROM {director_works}
+        GROUP BY director HAVING count(*) >= 4
         ORDER BY cnt DESC, avg_r DESC LIMIT 10
     """).fetchall()
     def _dir_row(d):
@@ -1174,7 +1190,7 @@ def render(conn) -> str:
         or "<tr><td class='dim' colspan='2'>No data</td></tr>"
     recent_rated_html = ""
     for r in recent_rated:
-        stars = format_rating(r["rating"])
+        stars = format_rating(r["rating"]) if r["rating"] is not None else r["signal"]
         recent_rated_html += f'<tr><td>{r["title"]}</td><td>{stars}</td></tr>'
     total_shows = all_counts["shows"] or 0
     total_films = all_counts["films"] or 0
@@ -1613,7 +1629,7 @@ def render(conn) -> str:
     <div class="stat"><div class="stat-n">{mean_str}</div><div class="stat-l">Mean rating</div></div>
     <div class="stat"><div class="stat-n">{stats["films"] or 0}</div><div class="stat-l">Films seen</div></div>
     <div class="stat"><div class="stat-n">{stats["shows"] or 0}</div><div class="stat-l">Shows seen</div></div>
-    <div class="stat"><div class="stat-n">{stats["films_rated"] or 0}</div><div class="stat-l">Rated (film+TV)</div></div>
+    <div class="stat"><div class="stat-n">{films_rated}</div><div class="stat-l">Rated (film+TV)</div></div>
     <div class="stat"><div class="stat-n" style="color:#c792ea">{comic_total}</div><div class="stat-l">Comics owned</div></div>
     <div class="stat"><div class="stat-n" style="color:#cc0000">{yt_foreground:,}</div><div class="stat-l">YouTube videos</div></div>
     <div class="stat"><div class="stat-n" style="color:#fe2c55">{tiktok_stats["watched"]:,}</div><div class="stat-l">TikTok watched</div></div>

@@ -245,6 +245,62 @@ with tempfile.TemporaryDirectory(prefix="obs-054-eval-") as folder:
         ok, msg = oracle_actions.undo(conn, cur.lastrowid)
         check("undoing a rate takes the work out of the view", ok and not rows("WHERE title='Undo Film'"), msg)
 
+    # ── OBS-054 step 3c: dashboard and Taste Map read the view ────────────────
+    import re
+    import sqlite3
+    import build_brain
+    import build_dashboard
+
+    c3 = sqlite3.connect(Path(folder) / "step3c.db")
+    c3.row_factory = sqlite3.Row
+    init_db(c3)
+    app_ratings.init_table(c3)
+    check("step 3c fixture starts without the view",
+          c3.execute("SELECT 1 FROM sqlite_master WHERE name='my_ratings'").fetchone() is None)
+
+    def film(item_id, title, year, source, genres='["Drama"]'):
+        c3.execute("INSERT INTO media_items (id,media_type,title,director,year,source,source_id,genres) "
+                   "VALUES (?,?,?,?,?,?,?,?)", (item_id, "film", title, "Dir Step3c", year, source, item_id, genres))
+
+    def mark(media_id, rating, source):
+        c3.execute("INSERT INTO user_interactions (media_id,interaction,rating,date_added,date_completed,source) "
+                   "VALUES (?,?,?,?,?,?)", (media_id, "rated", rating, "2026-03-01", "2026-03-01", source))
+
+    film("s1", "Dup Film", 2001, "imdb")
+    film("s2", "Dup Film", 2001, "netflix")
+    mark("s1", 4.0, "imdb")
+    mark("s2", 4.0, "netflix")
+    film("s3", "Like Only", 2002, "justwatch")
+    mark("s3", 4.5, "justwatch_liked")
+    film("s4", "App Replace", 2003, "imdb")
+    mark("s4", 3.0, "imdb")
+    c3.commit()
+    my_ratings.init(c3)
+    app_ratings.set_rating(c3, ["s4"], 5.0, "chat")
+    c3.execute("DROP VIEW my_ratings")
+    c3.commit()
+
+    page = build_dashboard.render(c3)
+    check("dashboard rebuilds on a database without the view", "<html" in page.lower())
+    check("a work with an IMDb row and a Netflix thumb counts once, the like adds nothing",
+          "2 rated · avg 9.0/10" in page, re.findall(r"\d+ rated · avg [^<]*", page))
+    check("director table counts works, not interactions",
+          re.search(r"Dir Step3c</span></td><td>2</td><td>9.0/10", page) is not None,
+          re.findall(r"Dir Step3c</span></td><td>\d+</td><td>[^<]*", page))
+    check("a JustWatch like shows as the word, never a number",
+          re.search(r"Like Only</td><td>liked</td>", page) is not None,
+          re.findall(r"Like Only</td><td>[^<]*", page))
+
+    top = build_brain._get_top_items(c3)
+    entries = [i for items in top.values() for i in items]
+    dup = [i for i in entries if i["title"] == "Dup Film"]
+    check("Taste Map gives the merged work one entry with its rating",
+          len(dup) == 1 and dup[0]["rating"] == 4.0, dup)
+    check("Taste Map leaves a like-only work out", not [i for i in entries if i["title"] == "Like Only"])
+    check("Taste Map top list uses the in-app rating over the import",
+          [i["rating"] for i in entries if i["title"] == "App Replace"] == [5.0], entries)
+    c3.close()
+
 conn.close()
 print(f"\n{checks - failures}/{checks} passed")
 sys.exit(1 if failures else 0)

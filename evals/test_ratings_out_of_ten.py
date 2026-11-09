@@ -402,6 +402,9 @@ function setup(kind, rating) {
         with get_conn() as conn:
             conn.execute("UPDATE media_items SET source='fixture'")
             conn.execute("UPDATE user_interactions SET source='fixture'")
+            # OBS-054: the dashboard now counts every rated work, so earlier fixtures must not rate
+            conn.execute("DELETE FROM user_interactions")
+            conn.execute("DELETE FROM app_ratings")
             for kind, source in [("film", "imdb"), ("book", "goodreads")]:
                 for n, rating in enumerate([4, 4, 4, 4.5]):
                     item_id = f"precision-{kind}-{n}"
