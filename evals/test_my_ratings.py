@@ -205,6 +205,7 @@ with tempfile.TemporaryDirectory(prefix="obs-054-eval-") as folder:
         except ValueError:
             ids = got[0]["member_ids"]
         check("a member id with a comma stays one id", ids == ["jw:love,_actually:2003"], ids)
+        conn.execute("DELETE FROM user_interactions WHERE media_id='jw:love,_actually:2003'")  # keeps the average below as it was
 
         # The average leaves out signal-only works (nothing invented from a like)
         media("imdb:v1", "film", "Scored Film", 2018)
