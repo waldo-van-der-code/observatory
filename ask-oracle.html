@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content"/>
   <title>Ask the Oracle</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
@@ -16,15 +16,16 @@
       --border: rgba(26,22,18,.14); --rust: #a83a0e; --cobalt: #1a4fa0;
       --gold: #d4920a; --sb-bg: #e9e3d9; --sb-hover: #ddd6ca;
       --nav-h: 104px;
+      --app-height: var(--app-height); --z-scrim: 210; --z-drawer: 220;
     }
-    body { font-family: 'Inter', sans-serif; background: var(--cream); color: var(--ink); height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+    body { font-family: 'Inter', sans-serif; background: var(--cream); color: var(--ink); height: var(--app-height); display: flex; flex-direction: column; overflow: hidden; }
 
     /* ── Two-column layout ── */
     .oracle-layout {
       display: flex;
       flex: 1;
       min-height: 0;
-      height: calc(100dvh - var(--nav-h));
+      height: calc(var(--app-height) - var(--nav-h));
     }
 
     /* ── Sidebar ── */
@@ -73,11 +74,14 @@
     /* ── Main chat area ── */
     .main {
       flex: 1;
+      min-width: 0; min-height: 0;
       display: flex;
       flex-direction: column;
       overflow: hidden;
       background: var(--cream);
     }
+
+    .welcome-area { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
 
     /* Page head (shown when no conversation active) */
     .main-head {
@@ -128,7 +132,6 @@
     .bubble strong { font-weight: 700; }
     .bubble p + p { margin-top: .5rem; }
 
-    /* Replayed conversation banner */
     /* ── Queued data changes (OBS-050) ── */
     .actions { display: flex; flex-direction: column; gap: 6px; margin: -4px 0 4px 44px; max-width: 640px; }
     .action-card {
@@ -148,17 +151,6 @@
       cursor: pointer; color: var(--ink);
     }
     .action-undo:hover { border-color: var(--ink); }
-
-    .replay-banner {
-      background: rgba(212,146,10,.08); border: 1px solid rgba(212,146,10,.3);
-      border-radius: 3px; padding: 8px 12px; font-size: .75rem; color: var(--ink-dim);
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    }
-    .replay-back {
-      font-size: .75rem; font-weight: 700; color: var(--cobalt); background: none;
-      border: none; cursor: pointer; font-family: inherit; white-space: nowrap;
-    }
-    .replay-back:hover { text-decoration: underline; }
 
     /* Input area */
     .chat-input-area {
@@ -190,13 +182,48 @@
     .dot:nth-child(3) { animation-delay: .4s; }
     @keyframes blink { 0%,80%,100% { opacity:.2 } 40% { opacity:1 } }
 
-    /* Mobile: sidebar collapses */
+    [hidden] { display: none !important; }
+    button:focus-visible, .sb-item:focus-visible { outline: 2px solid var(--rust); outline-offset: -2px; }
+    .sb-item { display: block; width: 100%; text-align: left; border-top: 0; border-right: 0; border-bottom: 0; background: none; font: inherit; min-height: 52px; }
+    .sb-item.active { box-shadow: inset 0 0 0 1px var(--gold); }
+    .new-btn, .drawer-close, .conversations-btn, .rename-btn, .action-undo, .send-btn { min-height: 44px; }
+    .new-btn, .drawer-close { min-width: 44px; }
+    .drawer-close, .conversations-btn { display: none; }
+    .drawer-scrim { position: fixed; inset: var(--nav-h) 0 0; z-index: var(--z-scrim); background: rgba(26,22,18,.35); border: 0; }
+    .session-head { padding: 12px 28px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .session-title-row { display: flex; gap: 10px; align-items: center; min-width: 0; }
+    .session-head h1 { font-family: 'Lora', serif; font-size: 1.15rem; line-height: 1.4; overflow-wrap: anywhere; flex: 1; min-width: 0; }
+    .rename-btn, .drawer-close, .conversations-btn { font: inherit; font-size: 12px; color: var(--ink-mid); border: 1px solid var(--border); background: var(--paper); border-radius: 3px; padding: 8px 10px; cursor: pointer; }
+    .title-input { width: 100%; min-width: 0; min-height: 44px; padding: 8px; font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--rust); border-radius: 3px; }
+    .session-error, .session-note { font-size: 12px; line-height: 1.5; color: var(--rust); overflow-wrap: anywhere; }
+    .session-note { padding: 10px 28px 0; }
+    .bubble, .action-reason, .action-summary { overflow-wrap: anywhere; }
+    .action-summary { min-width: 0; flex-basis: 180px; }
+    .chat-input { min-width: 0; max-height: 120px; }
+    .chat-input::placeholder { color: var(--ink-dim); opacity: 1; }
+    #primary-nav, #search-bar { flex-shrink: 0; }
+    #nav-search-input { min-width: 0; }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+    /* Mobile conversations drawer */
     @media (max-width: 700px) {
-      .sidebar { width: 0; display: none; }
+      .sidebar { display: none; position: fixed; top: var(--nav-h); bottom: 0; left: 0; width: min(320px, calc(100vw - 32px)); z-index: var(--z-drawer); }
+      .sidebar.open { display: flex; }
+      .drawer-close, .conversations-btn { display: inline-flex; align-items: center; justify-content: center; }
+      .conversations-btn { align-self: flex-start; margin: 8px 16px 0; flex-shrink: 0; }
+      .sb-header { gap: 6px; padding: 8px; }
+      .sb-title { margin-right: auto; }
+      .session-head { padding: 8px 16px; }
+      .session-note { padding: 8px 16px 0; }
+      .chat-input { font-size: 16px; }
+      .actions { margin-left: 0; }
+      .bubble { max-width: calc(100% - 38px); }
+      .sug-btn { min-height: 44px; }
+      #nav-search-btn { padding: 0 12px; }
       .main-head { padding: 16px 16px 0; }
       .suggestions { padding: 10px 16px 0; }
       .chat-messages { padding: 16px; }
-      .chat-input-area { padding: 8px 16px 12px; }
+      .chat-input-area { padding: 8px 16px max(12px, env(safe-area-inset-bottom)); }
     }
   </style>
 </head>
@@ -207,11 +234,13 @@
 
 <div class="oracle-layout">
 
+  <button class="drawer-scrim" id="drawer-scrim" type="button" aria-label="Close conversations" hidden></button>
   <!-- ── Sidebar ── -->
-  <aside class="sidebar" id="sidebar">
+  <aside class="sidebar" id="sidebar" aria-labelledby="sb-title">
     <div class="sb-header">
-      <span class="sb-title">History</span>
-      <button class="new-btn" onclick="startNew()">+ New</button>
+      <span class="sb-title" id="sb-title">Conversations</span>
+      <button class="new-btn" id="new-btn" type="button">+ New</button>
+      <button class="drawer-close" id="drawer-close" type="button" aria-label="Close conversations">✕</button>
     </div>
     <div class="sb-list" id="sb-list">
       <p class="sb-empty">No conversations yet.</p>
@@ -219,295 +248,512 @@
   </aside>
 
   <!-- ── Main ── -->
-  <div class="main">
+  <main class="main" id="chat-main">
+    <button class="conversations-btn" id="conversations-btn" type="button" aria-controls="sidebar" aria-expanded="false">Conversations</button>
+    <div class="session-head" id="session-head" hidden>
+      <div class="session-title-row" id="session-title-row">
+        <h1 id="session-title"></h1>
+        <button class="rename-btn" id="rename-btn" type="button" aria-label="Rename conversation">Rename</button>
+      </div>
+      <input class="title-input" id="title-input" aria-label="Conversation title" maxlength="80" hidden>
+      <p class="session-error" id="rename-error" role="alert" hidden></p>
+    </div>
+    <p class="session-note" id="session-note" role="status" hidden></p>
+    <div class="welcome-area">
     <div class="main-head" id="main-head">
       <h1>Ask the Oracle</h1>
-      <p>Your personal entertainment advisor — wired into your films, TV, books, audiobooks, podcasts, and comics. Powered by Claude.</p>
+      <p>Your personal entertainment advisor: wired into your films, TV, books, audiobooks, podcasts, and comics. Powered by Claude.</p>
     </div>
 
     <div class="suggestions" id="suggestions">
-      <button class="sug-btn" onclick="ask(this.textContent)">I want to zone out to a classic action film with 8+ IMDB — what do you recommend?</button>
-      <button class="sug-btn" onclick="ask(this.textContent)">What should I watch next given my taste in crime dramas?</button>
-      <button class="sug-btn" onclick="ask(this.textContent)">What animated films am I likely missing that I'd rate 5 stars?</button>
-      <button class="sug-btn" onclick="ask(this.textContent)">Recommend a show I can binge in a weekend</button>
+      <button class="sug-btn" data-suggestion>I want to zone out to a classic action film with 8+ IMDB: what do you recommend?</button>
+      <button class="sug-btn" data-suggestion>What should I watch next given my taste in crime dramas?</button>
+      <button class="sug-btn" data-suggestion>What animated films am I likely missing that I'd rate 5 stars?</button>
+      <button class="sug-btn" data-suggestion>Recommend a show I can binge in a weekend</button>
+    </div>
+
     </div>
 
     <div class="chat-messages" id="messages">
       <div class="msg">
         <div class="avatar bot">✦</div>
-        <div class="bubble bot">I have access to your full entertainment history — films, TV, books, audiobooks, podcasts, and comics. Ask me anything about your taste, or ask for a recommendation — I'll cite what you've actually rated.</div>
+        <div class="bubble bot">I have access to your full entertainment history: films, TV, books, audiobooks, podcasts, and comics. Ask me anything about your taste, or ask for a recommendation: I'll cite what you've actually rated.</div>
       </div>
     </div>
 
     <div class="chat-input-area">
       <textarea class="chat-input" id="input" rows="1" placeholder="Ask about your taste…" onkeydown="handleKey(event)"></textarea>
-      <button class="send-btn" id="send-btn" onclick="sendQuestion()">Send</button>
+      <button class="send-btn" id="send-btn" type="button">Send</button>
     </div>
-  </div>
+  </main>
 </div>
 
 <script>
 const messagesEl = document.getElementById('messages');
 const inputEl = document.getElementById('input');
 const sendBtn = document.getElementById('send-btn');
-let _history = [];
-let _activeId = null;
-let _turns = [];  // this conversation's earlier Q/A, sent so the Oracle can resolve "that" / "it"
-
-// ── Sidebar ──────────────────────────────────────────────────────────────────
+const sidebar = document.getElementById('sidebar');
+const drawerBtn = document.getElementById('conversations-btn');
+const titleInput = document.getElementById('title-input');
+const sessionTitle = document.getElementById('session-title');
+const renameError = document.getElementById('rename-error');
+const intro = "I have access to your full entertainment history: films, TV, books, audiobooks, podcasts, and comics. Ask me anything about your taste, or ask for a recommendation. I'll cite what you've actually rated.";
+let sessions = [];
+let active = { id: null, title: '', turns: [], pending: false };
+const pendingSessions = new Map();
+let viewVersion = 0;
+let listVersion = 0;
+let renaming = false;
+let renamePending = false;
 
 function relativeGroup(dateStr) {
-  const d = new Date(dateStr);
-  const now = new Date();
-  const diffDays = Math.floor((now - d) / 86400000);
-  if (diffDays === 0) return 'Today';
+  const date = new Date(dateStr);
+  const berlinDay = d => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  const diffDays = Math.round((Date.parse(berlinDay(new Date())) - Date.parse(berlinDay(date))) / 86400000);
+  if (diffDays <= 0) return 'Today';
   if (diffDays === 1) return 'Yesterday';
   if (diffDays < 7) return 'This week';
   if (diffDays < 30) return 'This month';
-  return d.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+  return date.toLocaleDateString('de-DE', { month: 'long', year: 'numeric', timeZone: 'Europe/Berlin' });
 }
 
-function fmtTime(dateStr) {
-  return new Date(dateStr).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-}
-
-function renderSidebar(items) {
+function renderSidebar() {
   const list = document.getElementById('sb-list');
-  if (!items.length) {
-    list.innerHTML = '<p class="sb-empty">No previous conversations yet.</p>';
-    return;
+  list.replaceChildren();
+  if (!sessions.length) {
+    const empty = document.createElement('p');
+    empty.className = 'sb-empty';
+    empty.textContent = 'No conversations yet.';
+    list.appendChild(empty);
   }
-  const groups = {};
-  for (const item of [...items].reverse()) {
-    const g = relativeGroup(item.created_at);
-    if (!groups[g]) groups[g] = [];
-    groups[g].push(item);
+  let lastGroup = '';
+  for (const session of sessions) {
+    const group = relativeGroup(session.updated_at);
+    if (group !== lastGroup) {
+      const label = document.createElement('div');
+      label.className = 'sb-group-label';
+      label.textContent = group;
+      list.appendChild(label);
+      lastGroup = group;
+    }
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'sb-item' + (active.id === session.id ? ' active' : '');
+    if (active.id === session.id) button.setAttribute('aria-current', 'true');
+    const title = document.createElement('div');
+    title.className = 'sb-item-q';
+    title.textContent = session.title;
+    button.title = session.title;
+    button.appendChild(title);
+    const time = document.createElement('div');
+    time.className = 'sb-item-date';
+    time.textContent = new Date(session.updated_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' });
+    button.appendChild(time);
+    button.addEventListener('click', () => openSession(session.id, true));
+    list.appendChild(button);
   }
-  let html = '';
-  for (const [label, entries] of Object.entries(groups)) {
-    html += `<div class="sb-group-label">${label}</div>`;
-    for (const e of entries) {
-      const q = e.question.length > 80 ? e.question.slice(0, 78) + '…' : e.question;
-      html += `<div class="sb-item${_activeId === e.id ? ' active' : ''}" data-id="${e.id}" onclick="replayConv(${e.id})">
-        <div class="sb-item-q">${escHtml(q)}</div>
-        <div class="sb-item-date">${fmtTime(e.created_at)}</div>
-      </div>`;
+}
+
+async function loadSessions() {
+  const version = ++listVersion;
+  try {
+    const response = await fetch('/api/oracle/sessions');
+    if (!response.ok) throw new Error('Could not load conversations.');
+    const data = await response.json();
+    if (version !== listVersion) return;
+    sessions = data;
+    renderSidebar();
+    const current = sessions.find(s => s.id === active.id);
+    if (current && !renaming && !renamePending) {
+      active.title = current.title;
+      sessionTitle.textContent = current.title;
+    }
+  } catch (_) {
+    if (version === listVersion) {
+      const error = document.createElement('p');
+      error.className = 'sb-empty';
+      error.textContent = 'Could not refresh conversations. Try reloading.';
+      document.getElementById('sb-list').appendChild(error);
     }
   }
-  list.innerHTML = html;
 }
 
-async function loadHistory() {
+function setDrawer(open, restoreFocus = true) {
+  sidebar.classList.toggle('open', open);
+  document.getElementById('drawer-scrim').hidden = !open;
+  drawerBtn.setAttribute('aria-expanded', String(open));
+  document.getElementById('chat-main').inert = open;
+  const nav = document.getElementById('primary-nav');
+  if (nav) nav.inert = open;
+  if (open) {
+    sidebar.setAttribute('role', 'dialog');
+    sidebar.setAttribute('aria-modal', 'true');
+    document.getElementById('drawer-close').focus();
+  } else {
+    sidebar.removeAttribute('role');
+    sidebar.removeAttribute('aria-modal');
+    if (restoreFocus && matchMedia('(max-width: 700px)').matches) drawerBtn.focus();
+  }
+}
+
+function note(text = '') {
+  const el = document.getElementById('session-note');
+  el.textContent = text;
+  el.hidden = !text;
+}
+
+function updateHeader() {
+  document.getElementById('session-head').hidden = !active.id;
+  document.getElementById('main-head').hidden = !!active.id || active.turns.length > 0;
+  document.getElementById('suggestions').hidden = !!active.id || active.turns.length > 0;
+  sessionTitle.textContent = active.title;
+  sendBtn.disabled = active.pending || !!active.loading;
+  inputEl.disabled = !!active.loading;
+}
+
+function cancelRename() {
+  renaming = false;
+  titleInput.hidden = true;
+  document.getElementById('session-title-row').hidden = false;
+  renameError.hidden = true;
+}
+
+function resetView(state) {
+  ++viewVersion;
+  cancelRename();
+  active = state;
+  note();
+  inputEl.value = '';
+  inputEl.style.height = 'auto';
+  renderConversation();
+  renderSidebar();
+}
+
+function renderConversation() {
+  messagesEl.replaceChildren();
+  updateHeader();
+  if (!active.id && !active.turns.length && !active.loading) addMsg(intro, 'bot');
+  for (const turn of active.turns) {
+    addMsg(turn.question, 'user');
+    if (turn.answer !== undefined) addMsg(turn.answer, 'bot');
+    renderActions(turn.actions || []);
+  }
+  if (active.pending || active.loading) addLoader();
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function startNew(navigate = true, focus = true) {
+  setDrawer(false, false);
+  resetView({ id: null, title: '', turns: [], pending: false });
+  if (navigate) history.pushState(null, '', '/ask?new=1');
+  if (focus) inputEl.focus();
+}
+
+async function openSession(id, navigate = false) {
+  id = Number(id);
+  setDrawer(false);
+  const state = pendingSessions.get(id) || { id, title: sessions.find(s => s.id === id)?.title || 'Conversation', turns: [], pending: false, loading: true };
+  resetView(state);
+  if (navigate) history.pushState(null, '', '/ask?s=' + encodeURIComponent(id));
+  if (state.pending) return;
+  const version = viewVersion;
   try {
-    const r = await fetch('/api/oracle/history?limit=100');
-    if (!r.ok) return;
-    _history = await r.json();
-    renderSidebar(_history);
-  } catch (_) {}
+    const response = await fetch('/api/oracle/sessions/' + encodeURIComponent(id));
+    if (version !== viewVersion) return;
+    if (!response.ok) {
+      if (response.status === 404 || response.status === 422) {
+        startNew(false, false);
+        history.replaceState(null, '', '/ask');
+        note('That conversation could not be found. Start a new one below.');
+        return;
+      }
+      throw new Error('Could not open this conversation. Try again from the list.');
+    }
+    const data = await response.json();
+    if (version !== viewVersion) return;
+    state.id = data.id;
+    state.title = data.title;
+    state.turns = data.turns;
+    state.loading = false;
+    renderConversation();
+  } catch (error) {
+    if (version !== viewVersion) return;
+    state.loading = false;
+    renderConversation();
+    note(error.message);
+  }
 }
 
-function replayConv(id) {
-  const item = _history.find(h => h.id === id);
-  if (!item) return;
-  _activeId = id;
-  renderSidebar(_history);
-
-  // Hide suggestions + head
-  document.getElementById('main-head').style.display = 'none';
-  document.getElementById('suggestions').style.display = 'none';
-
-  messagesEl.innerHTML = '';
-  const d = new Date(item.created_at);
-  const when = d.toLocaleDateString('de-DE', { weekday:'long', day:'2-digit', month:'long' }) + ' · ' + fmtTime(item.created_at);
-
-  // Replay banner
-  const banner = document.createElement('div');
-  banner.className = 'replay-banner';
-  banner.innerHTML = `<span>📖 Conversation from ${when}</span>
-    <button class="replay-back" onclick="startNew()">← New conversation</button>`;
-  messagesEl.appendChild(banner);
-
-  addMsg(item.question, 'user');
-  addMsg(item.answer, 'bot');
-  _turns = [{ question: item.question.slice(0, 3000), answer: item.answer.slice(0, 3000) }];
-  fetch(`/api/oracle/actions?conversation_id=${id}`)
-    .then(r => r.ok ? r.json() : [])
-    .then(acts => { if (_activeId === id) renderActions(acts); })
-    .catch(() => {});
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+function restoreLocation() {
+  const params = new URLSearchParams(location.search);
+  if (params.has('s')) openSession(params.get('s'));
+  else startNew(false, params.get('new') === '1');
 }
 
-function startNew() {
-  _activeId = null;
-  _turns = [];
-  renderSidebar(_history);
-  document.getElementById('main-head').style.display = '';
-  document.getElementById('suggestions').style.display = '';
-  messagesEl.innerHTML = '';
-  addMsg('I have access to your full entertainment history — films, TV, books, audiobooks, podcasts, and comics. Ask me anything about your taste, or ask for a recommendation — I\'ll cite what you\'ve actually rated.', 'bot');
-  inputEl.focus();
+function beginRename() {
+  if (!active.id || renamePending) return;
+  renaming = true;
+  renameError.hidden = true;
+  titleInput.value = active.title;
+  document.getElementById('session-title-row').hidden = true;
+  titleInput.hidden = false;
+  titleInput.focus();
+  titleInput.select();
 }
 
-// ── Chat ─────────────────────────────────────────────────────────────────────
+async function saveRename() {
+  if (!renaming || renamePending) return;
+  const state = active;
+  const title = titleInput.value.trim();
+  if (title === state.title) { cancelRename(); return; }
+  if (!title) {
+    renameError.textContent = 'Enter a conversation title.';
+    renameError.hidden = false;
+    return;
+  }
+  renamePending = true;
+  titleInput.disabled = true;
+  try {
+    const response = await fetch('/api/oracle/sessions/' + encodeURIComponent(state.id), {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not save this title. Try again.');
+    state.title = data.title;
+    ++listVersion;
+    const session = sessions.find(s => s.id === state.id);
+    if (session) session.title = data.title;
+    if (active === state) {
+      cancelRename();
+      sessionTitle.textContent = data.title;
+    }
+    renderSidebar();
+  } catch (error) {
+    if (active === state) {
+      renameError.textContent = error.message;
+      renameError.hidden = false;
+    }
+  } finally {
+    renamePending = false;
+    titleInput.disabled = false;
+  }
+}
 
-function addMsg(text, role) {
-  const div = document.createElement('div');
-  div.className = `msg ${role}`;
-  const avatar = document.createElement('div');
-  avatar.className = `avatar ${role === 'user' ? 'user' : 'bot'}`;
-  avatar.textContent = role === 'user' ? 'Me' : '✦';
-  const bubble = document.createElement('div');
-  bubble.className = `bubble ${role === 'user' ? 'user' : 'bot'}`;
-  bubble.innerHTML = role === 'bot' ? formatAnswer(text) : escHtml(text);
-  div.appendChild(avatar);
-  div.appendChild(bubble);
-  messagesEl.appendChild(div);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-  return bubble;
+function escHtml(text) {
+  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function formatAnswer(text) {
-  return '<p>' + text
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n\n/g, '</p><p>')
-    .replace(/\n/g, '<br>') + '</p>';
+  return '<p>' + escHtml(text).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
 }
 
-function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function addMsg(text, role) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  const avatar = document.createElement('div');
+  avatar.className = 'avatar ' + role;
+  avatar.textContent = role === 'user' ? 'Me' : '✦';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble ' + role;
+  if (role === 'bot') bubble.innerHTML = formatAnswer(text);
+  else bubble.textContent = text;
+  div.append(avatar, bubble);
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return bubble;
 }
 
 function addLoader() {
   const div = document.createElement('div');
   div.className = 'msg';
   div.id = 'loader-msg';
-  div.innerHTML = `<div class="avatar bot">✦</div><div class="bubble bot"><div class="dot-loader"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>`;
+  div.innerHTML = '<div class="avatar bot">✦</div><div class="bubble bot"><div class="dot-loader" aria-label="Waiting for the Oracle"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>';
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-function removeLoader() { document.getElementById('loader-msg')?.remove(); }
-
 async function ask(question) { inputEl.value = question; await sendQuestion(); }
 
 async function sendQuestion() {
-  const q = inputEl.value.trim();
-  if (!q) return;
-
-  // Entering a new question clears replay state
-  _activeId = null;
-  renderSidebar(_history);
-  document.getElementById('main-head').style.display = 'none';
-  document.getElementById('suggestions').style.display = 'none';
-
+  const question = inputEl.value.trim();
+  const state = active;
+  if (!question || state.pending || state.loading) return;
+  const first = !state.id;
+  const turn = { question, actions: [] };
+  state.turns.push(turn);
+  state.pending = true;
+  if (state.id) pendingSessions.set(state.id, state);
   inputEl.value = '';
   inputEl.style.height = 'auto';
-  sendBtn.disabled = true;
-  addMsg(q, 'user');
-  addLoader();
-
+  renderConversation();
+  note();
   try {
-    const resp = await fetch('/api/ask', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: q, history: _turns.slice(-4) }),
+    const payload = { question };
+    if (state.id) payload.session_id = state.id;
+    const response = await fetch('/api/ask', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
     });
-    removeLoader();
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      addMsg(`Error: ${err.detail || resp.statusText}`, 'bot');
-    } else {
-      const data = await resp.json();
-      addMsg(data.answer || '(no answer)', 'bot');
-      _turns.push({ question: q.slice(0, 3000), answer: (data.answer || '').slice(0, 3000) });
-      _turns = _turns.slice(-4);
-      renderActions(data.actions || []);
-      // Refresh sidebar so new entry appears
-      await loadHistory();
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : response.statusText);
+    turn.answer = data.answer || '(no answer)';
+    turn.actions = data.actions || [];
+    state.id = data.session_id || state.id;
+    state.title = data.session_title || state.title;
+    if (active === state && first && state.id) history.replaceState(null, '', '/ask?s=' + encodeURIComponent(state.id));
+    if (first && state.id) {
+      setTimeout(loadSessions, 4000);
+      setTimeout(loadSessions, 10000);
     }
-  } catch (e) {
-    removeLoader();
-    addMsg(`Network error: ${e.message}`, 'bot');
+    if (!data.session_id && active === state) note('This answer could not be saved. Try a new conversation before continuing.');
+  } catch (error) {
+    turn.answer = 'Could not get an answer: ' + error.message;
   } finally {
-    sendBtn.disabled = false;
-    inputEl.focus();
+    state.pending = false;
+    if (state.id) pendingSessions.delete(state.id);
+    if (active === state) {
+      renderConversation();
+      // On phones, keep focus under the user's control to avoid reopening the keyboard.
+      if (!matchMedia('(max-width: 700px)').matches) inputEl.focus();
+    }
+    loadSessions();
   }
 }
-
-// ── Queued data changes: each one waits for a separate security review ───────
 
 const ACTION_LABEL = {
   queued: 'Waiting for security review', reviewing: 'In security review', applied: 'Saved',
   rejected: 'Not saved', failed: 'Not saved', undone: 'Undone',
 };
 
-function actionCard(a) {
+function actionCard(action) {
   const card = document.createElement('div');
   card.className = 'action-card';
-  card.dataset.id = a.id;
-  card.dataset.status = a.status;
-  card.innerHTML = `<span class="action-summary">${escHtml(a.summary)}</span>
-    <span class="action-status">${escHtml(ACTION_LABEL[a.status] || a.status)}</span>
-    ${a.status === 'applied' ? '<button class="action-undo" type="button">Undo</button>' : ''}
-    ${a.reason && a.status !== 'applied' ? `<span class="action-reason">${escHtml(a.reason)}</span>` : ''}`;
-  card.querySelector('.action-undo')?.addEventListener('click', () => undoAction(a.id, card));
+  card.dataset.id = action.id;
+  card.dataset.status = action.status;
+  const summary = document.createElement('span');
+  summary.className = 'action-summary';
+  summary.textContent = action.summary;
+  const status = document.createElement('span');
+  status.className = 'action-status';
+  status.textContent = ACTION_LABEL[action.status] || action.status;
+  card.append(summary, status);
+  const operation = action.status === 'applied' ? 'undo' : action.confirmable ? 'confirm' : null;
+  if (operation) {
+    const button = document.createElement('button');
+    button.className = 'action-undo';
+    button.type = 'button';
+    button.textContent = operation === 'undo' ? 'Undo' : 'Save anyway';
+    button.addEventListener('click', () => changeAction(action.id, operation, card, button));
+    card.appendChild(button);
+  }
+  if (action.reason && action.status !== 'applied') alertInline(card, action.reason.replace(/^security review:\s*/i, ''));
   return card;
+}
+
+function rememberAction(action) {
+  // Keep a pending conversation's cached cards current when switching away and back.
+  for (const state of new Set([active, ...pendingSessions.values()])) {
+    for (const turn of state.turns) {
+      const index = (turn.actions || []).findIndex(a => a.id === action.id);
+      if (index >= 0) turn.actions[index] = action;
+    }
+  }
 }
 
 function renderActions(actions) {
   if (!actions.length) return;
   const wrap = document.createElement('div');
   wrap.className = 'actions';
-  actions.forEach(a => wrap.appendChild(actionCard(a)));
+  actions.forEach(action => wrap.appendChild(actionCard(action)));
   messagesEl.appendChild(wrap);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
   pollActions(wrap, 0);
 }
 
 async function pollActions(wrap, n) {
   const pending = [...wrap.querySelectorAll('.action-card')]
-    .filter(c => c.dataset.status === 'queued' || c.dataset.status === 'reviewing')
-    .map(c => c.dataset.id);
+    .filter(card => ['queued', 'reviewing'].includes(card.dataset.status)).map(card => card.dataset.id);
   if (!pending.length || n > 300 || !wrap.isConnected) return;
-  // up to 5 reviews run one after another, so keep watching (3s, slowing to 15s) instead of giving up
-  await new Promise(r => setTimeout(r, Math.min(3000 * 1.2 ** n, 15000)));
+  await new Promise(resolve => setTimeout(resolve, Math.min(3000 * 1.2 ** n, 15000)));
+  if (!wrap.isConnected) return;
   try {
-    const r = await fetch(`/api/oracle/actions?ids=${pending.join(',')}`);
-    if (r.ok) for (const a of await r.json()) {
-      wrap.querySelector(`.action-card[data-id="${a.id}"]`)?.replaceWith(actionCard(a));
+    const response = await fetch('/api/oracle/actions?ids=' + pending.map(encodeURIComponent).join(','));
+    if (response.ok && wrap.isConnected) for (const action of await response.json()) {
+      const card = [...wrap.children].find(c => c.dataset.id === String(action.id));
+      card?.replaceWith(actionCard(action));
+      rememberAction(action);
     }
   } catch (_) {}
   pollActions(wrap, n + 1);
 }
 
-async function undoAction(id, card) {
-  card.querySelector('.action-undo').disabled = true;
+async function changeAction(id, operation, card, button) {
+  button.disabled = true;
   try {
-    const r = await fetch(`/api/oracle/actions/${id}/undo`, { method: 'POST' });
-    const data = await r.json().catch(() => ({}));
-    if (r.ok) card.replaceWith(actionCard(data));
-    else { card.querySelector('.action-undo').disabled = false; alertInline(card, data.detail || 'Undo failed'); }
-  } catch (e) {
-    card.querySelector('.action-undo').disabled = false;
-    alertInline(card, `Could not reach the server (${e.message}); check the status before trying again.`);
+    const response = await fetch('/api/oracle/actions/' + encodeURIComponent(id) + '/' + operation, { method: 'POST' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not save this change. Try again.');
+    // The conversation may have been redrawn while this request ran, so find the card that is on screen now
+    const visible = card.isConnected ? card : messagesEl.querySelector('.action-card[data-id="' + CSS.escape(String(id)) + '"]');
+    visible?.replaceWith(actionCard(data));
+    rememberAction(data);
+  } catch (error) {
+    button.disabled = false;
+    alertInline(card, error.message);
   }
 }
 
-function alertInline(card, msg) {
+function alertInline(card, message) {
   let el = card.querySelector('.action-reason');
   if (!el) { el = document.createElement('span'); el.className = 'action-reason'; card.appendChild(el); }
-  el.textContent = msg;
+  el.textContent = message;
 }
 
-function handleKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
+function handleKey(event) {
+  if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendQuestion(); }
   setTimeout(() => {
     inputEl.style.height = 'auto';
     inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
   }, 0);
 }
 
-document.addEventListener('DOMContentLoaded', loadHistory);
+drawerBtn.addEventListener('click', () => setDrawer(true));
+document.getElementById('drawer-close').addEventListener('click', () => setDrawer(false));
+document.getElementById('drawer-scrim').addEventListener('click', () => setDrawer(false));
+document.getElementById('new-btn').addEventListener('click', () => startNew());
+document.getElementById('send-btn').addEventListener('click', sendQuestion);
+document.getElementById('rename-btn').addEventListener('click', beginRename);
+document.querySelectorAll('[data-suggestion]').forEach(button => button.addEventListener('click', () => ask(button.textContent)));
+titleInput.addEventListener('keydown', event => {
+  if (event.key === 'Enter') { event.preventDefault(); saveRename(); }
+  if (event.key === 'Escape') { event.preventDefault(); cancelRename(); document.getElementById('rename-btn').focus(); }
+});
+titleInput.addEventListener('blur', saveRename);
+window.addEventListener('popstate', restoreLocation);
+document.addEventListener('keydown', event => {
+  if (!sidebar.classList.contains('open')) return;
+  if (event.key === 'Escape') { event.preventDefault(); setDrawer(false); }
+  if (event.key === 'Tab') {
+    const controls = [...sidebar.querySelectorAll('button')].filter(button => button.getClientRects().length);
+    const first = controls[0], last = controls[controls.length - 1];
+    if (!sidebar.contains(document.activeElement)) { event.preventDefault(); first.focus(); }
+    else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+});
+matchMedia('(max-width: 700px)').addEventListener('change', () => setDrawer(false, false));
+function fitViewport() {
+  document.documentElement.style.setProperty('--app-height', (window.visualViewport?.height || window.innerHeight) + 'px');
+  const nav = document.getElementById('primary-nav');
+  // The shared search bar is inside primary-nav, so count that height once.
+  const height = nav?.getBoundingClientRect().height || 0;
+  if (height) document.documentElement.style.setProperty('--nav-h', height + 'px');
+}
+window.visualViewport?.addEventListener('resize', fitViewport);
+window.addEventListener('resize', fitViewport);
+window.addEventListener('load', fitViewport);
+fitViewport();
+restoreLocation();
+loadSessions();
 </script>
 </body>
 </html>

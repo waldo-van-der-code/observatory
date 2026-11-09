@@ -1348,6 +1348,12 @@ def render(conn) -> str:
   h2 {{ font-size:11px; font-weight:700; color:var(--text-dim); margin-bottom:16px; text-transform:uppercase; letter-spacing:.14em; }}
   h3 {{ font-size:14px; font-weight:600; color:var(--text); margin-bottom:8px; }}
   .dim {{ color:var(--text-dim); font-size:13px; }}
+  .oracle-entry {{ display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; width:100%; min-height:52px; padding:12px 16px; margin:0 0 20px; background:var(--bg-panel); border:1px solid var(--border-dark); border-radius:4px; color:var(--text); text-decoration:none; }}
+  .oracle-entry .oracle-star {{ color:var(--gold); font-size:24px; line-height:1; }}
+  .oracle-entry .oracle-label {{ font-weight:600; }}
+  .oracle-entry .dim {{ flex:1 1 260px; }}
+  .oracle-entry:hover {{ border-color:var(--rust); background:var(--bg-card); }}
+  .oracle-entry:focus-visible {{ outline:2px solid var(--rust); outline-offset:3px; }}
   .stat-bar {{ display:flex; gap:24px; margin-bottom:4px; flex-wrap:wrap; }}
   .stat {{ text-align:center; min-width:80px; }}
   .stat-n {{ font-size:28px; font-weight:800; color:var(--cobalt); font-family:'Lora',serif; }}
@@ -1581,6 +1587,7 @@ def render(conn) -> str:
 
 <div style="margin-bottom:24px">
   <img src="/culture/img/hero-overview.jpg" style="width:100%;height:260px;object-fit:cover;border-radius:4px;margin-bottom:20px;border:1px solid var(--border-dark)" alt="">
+  <a class="oracle-entry" href="/ask?new=1"><span class="oracle-star" aria-hidden="true">✶</span><span class="oracle-label">Ask the Oracle</span><span class="dim">What should I watch, read or listen to next?</span></a>
   <h1>My ears, my eyes and me</h1>
   <div class="dim">Profile generated {generated} · {total_consumed} items consumed · {len(book_ratings)} ratings</div>
 </div>
