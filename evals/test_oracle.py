@@ -19,11 +19,23 @@ ROOT = Path(__file__).resolve().parent.parent
 TMP = Path(tempfile.mkdtemp(prefix="obs-oracle-eval-"))
 TOKEN_FILE = TMP / "claude-code-oauth-token"
 os.environ["OBS_CLAUDE_TOKEN_FILE"] = str(TOKEN_FILE)
+os.environ["OBS_DB_PATH"] = str(TMP / "test.db")
 sys.path.insert(0, str(ROOT))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
 import server  # noqa: E402
+import app_ratings  # noqa: E402
+import db  # noqa: E402
+import my_ratings  # noqa: E402
+
+# The client below does not run server startup, which is what installs the view on a real server.
+_conn = db.get_conn()
+db.init_db(_conn)
+app_ratings.init_table(_conn)
+my_ratings.init(_conn)
+_conn.commit()
+_conn.close()
 
 client = TestClient(server.app)
 failures = 0
