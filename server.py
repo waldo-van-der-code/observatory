@@ -90,17 +90,29 @@ def favicon():
 # ── Search ────────────────────────────────────────────────────────────────────
 
 def _get_user_state(conn) -> tuple[set[str], dict[str, float | None]]:
-    """Return (watchlist_ids, {item_id: rating}) for all search-added items."""
+    """Return watchlist IDs and saved ratings from every import."""
     wl_rows = get_watchlist(conn)
     wl_ids = {r["id"] for r in wl_rows}
-    # Ratings stored separately — fetch all rated search items
     rated_rows = conn.execute("""
         SELECT m.id, ui.rating FROM media_items m
         JOIN user_interactions ui ON ui.media_id = m.id
-        WHERE ui.rating IS NOT NULL AND m.source IN ('tmdb', 'openlibrary', 'googlebooks')
+        WHERE ui.rating IS NOT NULL ORDER BY ui.id
     """).fetchall()
     ratings = {r["id"]: r["rating"] for r in rated_rows}
     return wl_ids, ratings
+
+
+def _work_rating(conn, title: str, media_type: str, year=None) -> float | None:
+    """Inherit a rating using the write path's identity and source priority."""
+    if media_type not in oracle_actions.MEDIA_GROUPS:
+        return None
+    target, reason = oracle_actions.resolve(conn, {
+        "action": "rate", "title": title, "year": year, "media_type": media_type,
+    })
+    if reason or target is None:
+        return None
+    return next((r["rating"] for item_id in target["item_ids"]
+                 for r in target["current_ratings"] if r["media_id"] == item_id), None)
 
 
 @app.get("/api/search")
@@ -109,21 +121,23 @@ async def api_search(
     type: str = Query("all"),
     page: int = Query(1, ge=1, le=20),
 ):
+    type = type or "all"  # the search box's "All" option sends an empty value
     if type not in ("all", "film", "tv", "book", "music", "podcast"):
         raise HTTPException(400, "type must be all | film | tv | book | music | podcast")
-
-    conn = get_conn()
-    try:
-        wl_ids, ratings = _get_user_state(conn)
-    finally:
-        conn.close()
 
     errors: list[str] = []
     results = await search(q, media_type=type, existing_ids=set(), page=page, errors=errors)
 
-    for item in results:
-        item["watchlist"] = item["id"] in wl_ids
-        item["rating"] = ratings.get(item["id"])
+    conn = get_conn()
+    try:
+        wl_ids, ratings = _get_user_state(conn)
+        for item in results:
+            item["watchlist"] = item["id"] in wl_ids
+            item["rating"] = ratings.get(item["id"])
+            if item["rating"] is None:
+                item["rating"] = _work_rating(conn, item["title"], item["media_type"], item.get("year"))
+    finally:
+        conn.close()
 
     # has_more: if we got a full page of results from TMDB (20), there's likely a next page
     has_more = len([r for r in results if r.get("source") == "tmdb"]) >= 20
@@ -164,13 +178,54 @@ def api_upsert_item(body: ItemIn):
 class InteractionIn(BaseModel):
     item_id: str
     interaction_type: str   # "shelf" | "rating"
-    value: str              # "to-watch" | "to-read" | "1".."5"
+    value: str              # shelf name, or stored rating 0.5..5 in half steps
+
+
+def _validated_rating(value) -> float:
+    try:
+        rating = float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "rating must be 0.5 to 5 in steps of 0.5")
+    if isinstance(value, bool) or not (0.5 <= rating <= 5) or (rating * 2) % 1:
+        raise HTTPException(422, "rating must be 0.5 to 5 in steps of 0.5")
+    return rating
+
+
+class RatingIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    year: int | None = Field(default=None, ge=1800, le=2100)
+    media_type: str
+    rating: float = Field(strict=True)
+
+
+@app.post("/api/rate")
+def api_rate(body: RatingIn):
+    rating = _validated_rating(body.rating)
+    if body.media_type not in oracle_actions.MEDIA_GROUPS or not oracle_actions.norm(body.title):
+        raise HTTPException(422, "a title and supported media_type are required")
+    action = {"action": "rate", **body.model_dump(), "title": body.title.strip(), "rating": rating}
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        target, reason = oracle_actions.resolve(conn, action)
+        if target is None:
+            raise HTTPException(409, reason)
+        oracle_actions.apply(conn, action, target)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"rating": rating}
 
 
 @app.post("/api/interactions")
 def api_interaction(body: InteractionIn):
     if body.interaction_type not in ("shelf", "rating"):
         raise HTTPException(400, "interaction_type must be shelf | rating")
+    if body.interaction_type == "rating":
+        rating = _validated_rating(body.value)
 
     conn = get_conn()
     try:
@@ -188,16 +243,16 @@ def api_interaction(body: InteractionIn):
                 (body.item_id, "watchlist", body.value, now),
             )
         else:
-            rating = float(body.value)
-            conn.execute(
-                "DELETE FROM user_interactions WHERE media_id=? AND rating IS NOT NULL",
-                (body.item_id,),
+            updated = conn.execute(
+                "UPDATE user_interactions SET rating=? WHERE media_id=? AND rating IS NOT NULL",
+                (rating, body.item_id),
             )
-            conn.execute(
-                "INSERT INTO user_interactions (media_id, interaction, rating, date_added) "
-                "VALUES (?,?,?,?)",
-                (body.item_id, "rated", rating, now),
-            )
+            if not updated.rowcount:
+                conn.execute(
+                    "INSERT INTO user_interactions (media_id, interaction, rating, date_added, date_completed, source) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (body.item_id, "rated", rating, now, now, "manual"),
+                )
         conn.commit()
     finally:
         conn.close()
@@ -492,6 +547,19 @@ async def api_culture_detail(key: str = Query(...)):
     raise HTTPException(404, "unknown key format")
 
 
+def _culture_rating(item_id: str, imdb_id: str = "", *, title: str = "", media_type: str = "", year=None) -> float | None:
+    """Read the stored rating for a detail item, including its IMDb import."""
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT ui.rating FROM media_items m
+            JOIN user_interactions ui ON ui.media_id=m.id
+            WHERE ui.rating IS NOT NULL AND
+                  (m.id=? OR (? != '' AND (m.id=? OR (m.source='imdb' AND m.source_id=?))))
+            ORDER BY ui.id DESC LIMIT 1
+        """, (item_id, imdb_id, imdb_id, imdb_id)).fetchone()
+        return row["rating"] if row else _work_rating(conn, title, media_type, year)
+
+
 async def _culture_tmdb(kind: str, tmdb_id: str, api_key: str, timeout) -> JSONResponse:
     import httpx as _httpx
     import asyncio as _asyncio
@@ -561,7 +629,9 @@ async def _culture_tmdb(kind: str, tmdb_id: str, api_key: str, timeout) -> JSONR
             "buy": [p["provider_name"] for p in de.get("buy", [])],
         },
         "links": links,
-        "your_rating": None,
+        "your_rating": _culture_rating(f"tmdb:{kind}:{tmdb_id}", imdb_id, title=title,
+                                       media_type="film" if kind == "movie" else "tv_show",
+                                       year=int(year_str) if year_str.isdigit() else None),
         "date_watched": None,
     })
 
@@ -617,7 +687,8 @@ async def _culture_ol(work_id: str, timeout) -> JSONResponse:
             "🎧 Audible": audible,
             "📚 Open Library": f"https://openlibrary.org/works/{work_id}",
         },
-        "your_rating": None,
+        "your_rating": _culture_rating(f"ol:{work_id}", title=title, media_type="book",
+                                       year=int(w["first_publish_date"]) if str(w.get("first_publish_date", "")).isdigit() else None),
         "date_read": None,
     })
 
@@ -1098,14 +1169,14 @@ async def api_ask(body: AskIn, background: BackgroundTasks):
             ORDER BY ui.rating DESC LIMIT 20
         """).fetchall()
         top_dirs = conn.execute("""
-            SELECT m.director, COUNT(*) n, ROUND(AVG(ui.rating),2) avg
+            SELECT m.director, COUNT(*) n, AVG(ui.rating) avg
             FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
             WHERE m.director IS NOT NULL AND ui.rating IS NOT NULL AND m.source='imdb'
             GROUP BY m.director HAVING n >= 2
             ORDER BY avg DESC, n DESC LIMIT 10
         """).fetchall()
         stats = conn.execute("""
-            SELECT COUNT(*) total, ROUND(AVG(ui.rating),2) avg
+            SELECT COUNT(*) total, AVG(ui.rating) avg
             FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
             WHERE m.source='imdb' AND ui.rating IS NOT NULL
         """).fetchone()
@@ -1120,7 +1191,7 @@ async def api_ask(body: AskIn, background: BackgroundTasks):
             ORDER BY ui.rating DESC, m.title LIMIT 40
         """).fetchall()
         book_stats = conn.execute("""
-            SELECT COUNT(*) total, ROUND(AVG(ui.rating),2) avg
+            SELECT COUNT(*) total, AVG(ui.rating) avg
             FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
             WHERE m.media_type='book' AND m.source='goodreads' AND ui.rating IS NOT NULL
         """).fetchone()
@@ -1160,31 +1231,39 @@ async def api_ask(body: AskIn, background: BackgroundTasks):
     finally:
         conn.close()
 
+    def personal_rating(value, average=False):
+        if value is None:
+            return "?"
+        score = float(value) * 2
+        return f"{score:.1f}/10" if average else f"{score:g}/10"
+
     def fmt(rows):
-        return ", ".join(f"{r[0]} ({r[1] or '?'}) ★{r[-1]}" for r in rows[:20])
+        return ", ".join(f"{r[0]} ({r[1] or '?'}) {personal_rating(r[-1])}" for r in rows[:20])
 
     def fmt_books(rows):
-        return ", ".join(f"{r[0]} by {r[1] or '?'} ★{r[2]}" for r in rows[:30])
+        return ", ".join(f"{r[0]} by {r[1] or '?'} {personal_rating(r[2])}" for r in rows[:30])
 
-    netflix_film_str = ", ".join(f"{r[0]} ★{r[1]}" for r in netflix_films)
-    netflix_show_str = ", ".join(f"{r[0]} ★{r[1]}" for r in netflix_shows)
+    netflix_film_str = ", ".join(f"{r[0]} {personal_rating(r[1])}" for r in netflix_films)
+    netflix_show_str = ", ".join(f"{r[0]} {personal_rating(r[1])}" for r in netflix_shows)
     comics_author_str = ", ".join(f"{r[0]} ({r[1]} albums)" for r in comics_authors)
     audiobook_str = ", ".join(f"{r[0]} by {r[1] or '?'}" for r in audiobooks)
-    podcast_str = ", ".join(f"{r[0]} ★{r[2]}" for r in top_podcasts)
+    podcast_str = ", ".join(f"{r[0]} {personal_rating(r[2])}" for r in top_podcasts)
 
     system = f"""You are the Oracle — a personal entertainment advisor with complete access to Waldo's taste data across films, TV shows, books, audiobooks, podcasts, and comics.
 
-FILMS ({stats[0] if stats else '?'} rated via IMDB, avg ★{stats[1] if stats else '?'}/5):
-Top-rated (4-5★): {fmt(top_films)}
-Top directors: {", ".join(f"{r[0]} ({r[2]}★ avg, {r[1]} films)" for r in top_dirs)}
+All Waldo's personal ratings are out of ten; always speak out of ten, never stars, including Netflix thumbs (8/10 or 3/10) and Goodreads ratings.
+
+FILMS ({stats[0] if stats else '?'} rated via IMDB, avg {personal_rating(stats[1] if stats else None, average=True)}):
+Top-rated (8 to 10 out of 10): {fmt(top_films)}
+Top directors: {", ".join(f"{r[0]} (avg {personal_rating(r[2], average=True)}, {r[1]} films)" for r in top_dirs)}
 Watchlist: {", ".join(f"{r[0]} ({r[1] or '?'})" for r in watchlist)}
 
 NETFLIX RATINGS — films ({len(netflix_films)} rated): {netflix_film_str}
 NETFLIX RATINGS — shows ({len(netflix_shows)} rated): {netflix_show_str}
 
-TV SHOWS (top-rated 4-5★ via IMDB): {fmt(top_shows)}
+TV SHOWS (top-rated 8 to 10 out of 10 via IMDB): {fmt(top_shows)}
 
-BOOKS ({book_stats[0] if book_stats else 0} rated via Goodreads, avg ★{book_stats[1] if book_stats else '?'}/5):
+BOOKS ({book_stats[0] if book_stats else 0} rated via Goodreads, avg {personal_rating(book_stats[1] if book_stats else None, average=True)}):
 {fmt_books(top_books)}
 
 AUDIOBOOKS (Audible library, {len(audiobooks)} titles — no per-book ratings, listened to all):
@@ -1202,10 +1281,10 @@ TIKTOK: ~85,785 videos watched (behavioral data only, no ratings)
 MUSIC: Spotify history tracked but not yet in this data export
 
 KEY TASTE PATTERNS:
-- 5-star films: City of God, Fight Club, Eyes Wide Shut, Three Colors Blue, Black Swan, Spider-Verse, LotR, Shawshank
-- 5-star books: Red Rising, Ender's Game, Children of Time, Hyperion series, Terry Pratchett (15+ titles), The Lies of Locke Lamora
-- 5-star shows: Black Mirror, Band of Brothers, Attack on Titan, Berlin Alexanderplatz, Cowboy Bebop
-- 5-star podcasts: 99% Invisible, The Moth, Radiolab, Serial, Reply All, Love and Radio, Snap Judgment
+- 10/10 films: City of God, Fight Club, Eyes Wide Shut, Three Colors Blue, Black Swan, Spider-Verse, LotR, Shawshank
+- 10/10 books: Red Rising, Ender's Game, Children of Time, Hyperion series, Terry Pratchett (15+ titles), The Lies of Locke Lamora
+- 10/10 shows: Black Mirror, Band of Brothers, Attack on Titan, Berlin Alexanderplatz, Cowboy Bebop
+- 10/10 podcasts: 99% Invisible, The Moth, Radiolab, Serial, Reply All, Love and Radio, Snap Judgment
 - Book taste: hard sci-fi (Hyperion, Ender's Game, Children of Time), fantasy heists (Locke Lamora, Red Rising), Pratchett wit
 - Film affinities: Drama+Crime, Animation, Musical, Biography, Sci-Fi Thriller, European arthouse
 - Comics: deep Belgian BD tradition (Biddeloo, Asterix, Tintin, Spirou, Schuiten & Peeters)

@@ -54,7 +54,7 @@ async function showDetail(itemId, mediaType) {
     const d = await r.json();
     document.getElementById('detail-panel-title').textContent = d.title || '';
     body.innerHTML = renderStoryDetail(d, itemId);
-    wireDetailInteractions(d, itemId);
+    wireDetailInteractions(d);
   } catch(e) {
     showDetailFallback(body, itemId, null);
   }
@@ -108,13 +108,13 @@ async function showArtistDetail(name) {
 
 // ── Renderers ─────────────────────────────────────────────────────────────────
 
-function starBar(current, itemId, title, mediaType) {
-  return [1,2,3,4,5].map(i => {
-    const lit = i <= (current||0);
-    return `<span class="star${lit?' lit':''}" style="font-size:24px;padding:4px 6px;cursor:pointer"
-      onclick="rateDetailItem('${itemId}','${(title||'').replace(/'/g,\"\\\\'\")}',${i},'${mediaType}')"
+function starBar(current) {
+  return Array.from({length:10}, (_,i) => i+1).map(i => {
+    const lit = i <= Math.round((current||0)*2);
+    return `<button type="button" class="star${lit?' lit':''}" aria-label="Rate ${i} out of 10"
+      onclick="rateDetailItem(${i})"
       onmouseenter="hoverDetailStars(this,${i})"
-      onmouseleave="resetDetailStars(this.parentNode,${current||0})">★</span>`;
+      onmouseleave="resetDetailStars(this.parentNode)">★</button>`;
   }).join('');
 }
 
@@ -181,7 +181,7 @@ function renderStoryDetail(d, itemId) {
 
       ${yourRating || yourDate ? `<div class="detail-section" style="background:var(--bg-card);border-radius:4px;padding:12px;border:1px solid var(--border)">
         <div class="detail-section-label">Your history</div>
-        ${yourRating ? `<div style="font-size:20px;color:var(--gold)">${'★'.repeat(Math.round(yourRating))}<span style="font-size:13px;color:var(--text-dim);margin-left:6px">${yourRating} stars</span></div>` : ''}
+        ${yourRating ? `<div id="detail-history-rating" style="font-size:20px;color:var(--gold)">${yourRating*2}/10</div>` : ''}
         ${yourDate ? `<div style="font-size:12px;color:var(--text-dim);margin-top:4px">${isBook?'Read':'Watched'}: ${yourDate?.slice(0,10)||''}</div>` : ''}
       </div>` : ''}
 
@@ -195,7 +195,9 @@ function renderStoryDetail(d, itemId) {
 
       <div class="detail-section">
         <div class="detail-section-label">Rate this</div>
-        <div id="detail-stars" style="display:flex;gap:2px">${starBar(yourRating, itemId, d.title, d.media_type)}</div>
+        <div id="detail-stars" data-saved="${yourRating||0}">${starBar(yourRating)}</div>
+        <div id="detail-rating-value" aria-live="polite">${yourRating ? (yourRating*2)+'/10' : 'Unrated'}</div>
+        <div id="detail-rating-error" role="alert"></div>
       </div>
 
       <div style="margin-top:16px;flex-wrap:wrap;display:flex;gap:8px;align-items:center">
@@ -205,8 +207,10 @@ function renderStoryDetail(d, itemId) {
 }
 
 function renderDirectorDetail(d) {
+  const ratings = (d.your_films||[]).map(f=>f.rating).filter(r=>r != null);
+  const average = ratings.length ? ratings.reduce((sum,r)=>sum+r,0)*2/ratings.length : 0;
   const filmRows = (d.your_films||[]).slice(0,10).map(f => {
-    const stars = f.rating ? '★'.repeat(Math.round(f.rating)) : '—';
+    const stars = f.rating ? (f.rating*2)+'/10' : '?';
     return `<tr>
       <td style="cursor:pointer;color:var(--cobalt)" onclick="searchAndShowDetail('${f.title?.replace(/'/g,"\\\\'")}','film')">${f.title||''}</td>
       <td style="color:var(--text-dim)">${f.year||''}</td>
@@ -220,7 +224,7 @@ function renderDirectorDetail(d) {
     <div class="detail-meta">${[d.birthday?.slice(0,4), d.place_of_birth].filter(Boolean).join(' · ')}</div>
     ${d.bio ? `<div class="detail-section"><p style="font-size:13px;color:var(--text-dim);line-height:1.6">${d.bio}</p></div>` : ''}
     <div class="detail-section">
-      <div class="detail-section-label">Your watch history (${d.your_count} films · avg ${d.your_avg}★)</div>
+      <div class="detail-section-label">Your watch history (${d.your_count} films · avg ${average.toFixed(1)}/10)</div>
       <table><tr><th>Film</th><th>Year</th><th>Your rating</th></tr>${filmRows}</table>
     </div>
     <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">${linkRow(d.links)}</div>
@@ -263,31 +267,59 @@ function showDetailFallback(body, itemId, title) {
   </div>`;
 }
 
-function wireDetailInteractions(d, itemId) {
-  // nothing extra needed — stars are wired inline
+function wireDetailInteractions(d) {
+  const container = document.getElementById('detail-stars');
+  if (container) container._item = d;
 }
 
-async function rateDetailItem(itemId, title, stars, mediaType) {
-  // Optimistic UI
+async function rateDetailItem(position) {
   const container = document.getElementById('detail-stars');
-  if (container) {
-    container.querySelectorAll('.star').forEach((s,i) => {
-      s.classList.toggle('lit', i < stars);
+  const d = container?._item;
+  if (!d || container.dataset.busy) return;
+  const isCurrent = () => document.getElementById('detail-stars') === container && container._item === d;
+  const label = document.getElementById('detail-rating-value');
+  const error = document.getElementById('detail-rating-error');
+  error.textContent = '';
+  container.dataset.busy = '1';
+  container.querySelectorAll('button').forEach(b=>b.disabled=true);
+  try {
+    const response = await fetch('/api/rate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({title:d.title, year:Number(d.year)||null,
+        media_type:d.media_type, rating:position/2}),
     });
+    const result = await response.json();
+    if (!isCurrent()) return;
+    if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Could not save rating');
+    const {rating} = result;
+    d.your_rating = rating;
+    container.dataset.saved = String(rating);
+    resetDetailStars(container);
+    label.textContent = (rating*2)+'/10';
+    const history = document.getElementById('detail-history-rating');
+    if (history) history.textContent = (rating*2)+'/10';
+  } catch(e) {
+    if (!isCurrent()) return;
+    resetDetailStars(container);
+    const saved = Number(container.dataset.saved||0);
+    label.textContent = saved ? (saved*2)+'/10' : 'Unrated';
+    error.textContent = e.message || 'Could not save rating';
+  } finally {
+    delete container.dataset.busy;
+    container.querySelectorAll('button').forEach(b=>b.disabled=false);
   }
-  await fetch('/api/culture/interact', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ item_key: itemKeyFromId(itemId, mediaType), media_type: mediaType, title, interact: 'rating', value: String(stars) }),
-  });
 }
 
 function hoverDetailStars(el, n) {
   const container = el.closest('[id="detail-stars"]') || el.parentNode;
   container.querySelectorAll('.star').forEach((s,i) => { s.style.color = i < n ? 'var(--gold)' : 'var(--border-dark)'; });
 }
-function resetDetailStars(container, saved) {
-  container.querySelectorAll('.star').forEach((s,i) => { s.style.color = i < saved ? 'var(--gold)' : 'var(--border-dark)'; });
+function resetDetailStars(container) {
+  const positions = Math.round(Number(container.dataset.saved||0)*2);
+  container.querySelectorAll('.star').forEach((s,i) => {
+    s.style.color = '';
+    s.classList.toggle('lit', i < positions);
+  });
 }
 
 function closeDetail() {
@@ -325,6 +357,7 @@ async function searchAndShowDetail(title, mediaType) {
     const d = await r.json();
     document.getElementById('detail-panel-title').textContent = d.title || title;
     body.innerHTML = renderStoryDetail(d, title);
+    wireDetailInteractions(d);
   } catch(e) {
     showDetailFallback(body, title, title);
   }

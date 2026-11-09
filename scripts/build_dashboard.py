@@ -12,6 +12,14 @@ OUT = Path(__file__).parent.parent / "dashboard.html"
 DISMISSED = Path(__file__).parent.parent / "data" / "cache" / "dismissed_recs.json"
 
 
+def format_rating(value: float | None, *, average: bool = False) -> str:
+    """Show personal ratings out of ten; input stays on the stored scale."""
+    if value is None:
+        return "?"
+    score = float(value) * 2
+    return f"{score:.1f}/10" if average else f"{score:g}/10"
+
+
 def load_dismissed() -> set[int]:
     if DISMISSED.exists():
         return set(json.loads(DISMISSED.read_text()))
@@ -45,9 +53,9 @@ def svg_bar_chart(data: dict[str, float], color: str = "#1a4fa0",
 def svg_rating_histogram(ratings: list[float], color: str = "#1a4fa0") -> str:
     if not ratings:
         return "<p class='dim'>No ratings yet.</p>"
-    buckets = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    buckets = {position / 2: 0 for position in range(1, 11)}
     for r in ratings:
-        b = min(5, max(1, round(r)))
+        b = min(5, max(0.5, round(r * 2) / 2))
         buckets[b] += 1
     max_v = max(buckets.values()) or 1
     bars = []
@@ -56,11 +64,11 @@ def svg_rating_histogram(ratings: list[float], color: str = "#1a4fa0") -> str:
         bars.append(
             f'<div style="display:flex;flex-direction:column;align-items:center;gap:4px">'
             f'<div style="font-size:11px;color:var(--text-dim);font-weight:600">{count}</div>'
-            f'<div style="width:32px;height:{h}px;background:{color};border-radius:2px 2px 0 0"></div>'
-            f'<div style="font-size:12px;color:var(--gold)">{"★"*star}</div>'
+            f'<div style="width:100%;min-width:12px;height:{h}px;background:{color};border-radius:2px 2px 0 0"></div>'
+            f'<div style="font-size:10px;color:var(--gold)">{format_rating(star)}</div>'
             f'</div>'
         )
-    return f'<div style="display:flex;align-items:flex-end;gap:8px;height:120px;padding-top:16px">{"".join(bars)}</div>'
+    return f'<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:2px;height:120px;padding-top:16px">{"".join(bars)}</div>'
 
 
 def render(conn) -> str:
@@ -198,9 +206,9 @@ def render(conn) -> str:
         GROUP BY decade ORDER BY decade
     """).fetchall()
 
-    # User rating distribution for films (1–5 stars)
+    # User rating distribution for films, grouped on the stored scale
     film_user_rating_dist = conn.execute("""
-        SELECT round(ui.rating) stars, count(*) cnt
+        SELECT ui.rating stars, count(*) cnt
         FROM user_interactions ui JOIN media_items m ON m.id=ui.media_id
         WHERE m.media_type IN ('film','movie') AND ui.rating IS NOT NULL
         GROUP BY stars ORDER BY stars
@@ -609,7 +617,7 @@ def render(conn) -> str:
         name = d["director"].replace("'", "\\'")
         return (f'<tr><td><span style="cursor:pointer;color:var(--cobalt)" '
                 f'onclick="showDirectorDetail(\'{name}\')">{d["director"]}</span></td>'
-                f'<td>{d["cnt"]}</td><td>{d["avg_r"]:.1f}★</td></tr>')
+                f'<td>{d["cnt"]}</td><td>{format_rating(d["avg_r"], average=True)}</td></tr>')
 
     directors_by_rating_html = "".join(_dir_row(d) for d in top_directors_by_rating)
     directors_by_count_html  = "".join(_dir_row(d) for d in top_directors_by_count)
@@ -625,7 +633,7 @@ def render(conn) -> str:
     for s in series_data:
         name = s["series_name"]
         n = s["read_count"]
-        avg = f'{s["avg_rating"]:.1f}★' if s["avg_rating"] else "—"
+        avg = format_rating(s["avg_rating"], average=True) if s["avg_rating"] else "?"
         series_html += (
             f'<div class="series-row">'
             f'<span class="series-name">{name}</span>'
@@ -1119,7 +1127,7 @@ def render(conn) -> str:
                 "Dolly Parton's America"}
     podcasts_html = ""
     for p in podcasts:
-        stars = "★" * int(p["rating"] or 0) if p["rating"] else "—"
+        stars = format_rating(p["rating"])
         tag = " · <span style='font-size:11px;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:.06em'>Huge fan</span>" if p["title"] in HUGE_FAN else ""
         podcasts_html += (
             f'<div class="series-row" style="align-items:center">'
@@ -1166,7 +1174,7 @@ def render(conn) -> str:
         or "<tr><td class='dim' colspan='2'>No data</td></tr>"
     recent_rated_html = ""
     for r in recent_rated:
-        stars = "👍" if (r["rating"] or 0) >= 3.5 else "👎"
+        stars = format_rating(r["rating"])
         recent_rated_html += f'<tr><td>{r["title"]}</td><td>{stars}</td></tr>'
     total_shows = all_counts["shows"] or 0
     total_films = all_counts["films"] or 0
@@ -1179,8 +1187,8 @@ def render(conn) -> str:
     # ── Authors table ─────────────────────────────────────────────────────────
     authors_html = ""
     for a in top_authors:
-        avg = f'{a["avg_r"]:.1f}' if a["avg_r"] else "—"
-        authors_html += f'<tr><td>{a["author"]}</td><td>{a["n"]}</td><td>{avg}★</td></tr>'
+        avg = format_rating(a["avg_r"], average=True)
+        authors_html += f'<tr><td>{a["author"]}</td><td>{a["n"]}</td><td>{avg}</td></tr>'
 
     # ── To-read queue ─────────────────────────────────────────────────────────
     to_read_html = ""
@@ -1247,18 +1255,19 @@ def render(conn) -> str:
         color="var(--accent-film)"
     )
 
-    # User rating distribution for films (1-5 stars)
-    film_user_stars = {int(r["stars"]): r["cnt"] for r in film_user_rating_dist if r["stars"]}
+    # User rating distribution for films, labelled out of ten
+    film_user_stars = {r["stars"]: r["cnt"] for r in film_user_rating_dist if r["stars"]}
     max_star_v = max(film_user_stars.values()) if film_user_stars else 1
     user_rating_html = '<div style="display:flex;align-items:flex-end;gap:6px;height:80px;padding-top:12px">'
-    for s in range(1, 6):
+    for position in range(1, 11):
+        s = position / 2
         cnt = film_user_stars.get(s, 0)
         h = max(2, round(cnt / max_star_v * 64))
         user_rating_html += (
             f'<div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1">'
             f'<div style="font-size:10px;color:var(--text-dim);font-weight:600">{cnt}</div>'
             f'<div style="width:100%;height:{h}px;background:var(--accent-film);border-radius:2px 2px 0 0"></div>'
-            f'<div style="font-size:10px;color:var(--gold)">{"★"*s}</div>'
+            f'<div style="font-size:10px;color:var(--gold)">{format_rating(s)}</div>'
             f'</div>'
         )
     user_rating_html += '</div>'
@@ -1285,7 +1294,7 @@ def render(conn) -> str:
 
     # ── Render ────────────────────────────────────────────────────────────────
     total_consumed = (stats["books"] or 0) + (stats["audiobooks"] or 0) + (stats["films"] or 0) + (stats["shows"] or 0)
-    mean_str = f'{cal.get("mean","—")}'
+    mean_str = format_rating(cal.get("mean"), average=True)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -1438,9 +1447,11 @@ def render(conn) -> str:
   .filter-pill:hover {{ border-color:var(--cobalt); color:var(--cobalt); }}
   .filter-pill.active {{ background:var(--cobalt); border-color:var(--cobalt); color:#fff; }}
   .related-item {{ display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); }}
-  .star-r {{ display:inline-flex; gap:1px; }}
-  .star-r span {{ font-size:18px; cursor:pointer; color:var(--border-light); transition:color .15s; padding:6px 4px; }}
-  .star-r span.lit {{ color:var(--accent-film); }}
+  .star-r {{ display:flex; flex-wrap:wrap; gap:1px; max-width:100%; }}
+  .star-r button {{ min-width:28px; min-height:32px; padding:4px 0; border:0; background:none; font:inherit; font-size:16px; cursor:pointer; color:var(--border-dark); transition:color .15s; }}
+  .star-r button.lit {{ color:var(--gold); }}
+  .rating-value {{ font-size:12px; color:var(--gold); white-space:nowrap; }}
+  .rating-error {{ font-size:12px; color:var(--text-dim); }}
   /* Section images */
   .sec-img {{
     width:100%; height:220px; object-fit:cover; border-radius:4px;
@@ -1515,8 +1526,6 @@ def render(conn) -> str:
   .star {{ font-size:18px; cursor:pointer; color:var(--border-dark); transition:color .15s; line-height:1; padding:6px 4px; }}
   .star.lit {{ color:var(--gold); }}
   .star:hover {{ color:var(--gold); }}
-  .star-r span {{ font-size:18px; cursor:pointer; color:var(--border-dark); transition:color .15s; padding:6px 4px; }}
-  .star-r span.lit {{ color:var(--gold); }}
   /* Series row */
   .series-name {{ font-size:14px; color:var(--text); font-weight:500; }}
   .series-count {{ font-size:13px; color:var(--text-dim); }}
@@ -1526,6 +1535,9 @@ def render(conn) -> str:
   /* Mobile */
   @media(max-width:700px) {{
     body {{ overflow-x:hidden; }}
+    .result-card {{ flex-wrap:wrap; }}
+    .result-body {{ flex-basis:calc(100% - 72px); }}
+    .result-actions {{ flex-basis:100%; min-width:0; }}
     .sec-title {{ font-size:clamp(32px,10vw,56px); }}
     .sec-title.pattern {{ font-size:clamp(40px,12vw,72px); }}
     .snav-link {{ min-height:44px; display:inline-flex; align-items:center; padding:8px 12px; }}
@@ -1642,7 +1654,7 @@ def render(conn) -> str:
     <div class="panel">
       <h2>My Rating Distribution</h2>
       {user_rating_html}
-      <div class="dim" style="margin-top:10px;font-size:12px">{len(film_ratings)} rated · avg {round(sum(film_ratings)/len(film_ratings),1) if film_ratings else "—"}★</div>
+      <div class="dim" style="margin-top:10px;font-size:12px">{len(film_ratings)} rated · avg {format_rating(sum(film_ratings)/len(film_ratings) if film_ratings else None, average=True)}</div>
     </div>
   </div>
 
@@ -1945,10 +1957,10 @@ def render(conn) -> str:
   <div class="panel" style="margin-top:4px">
     <div class="stat-bar">
       <div class="stat"><div class="stat-n" style="color:#fe2c55">{tiktok_stats["watched"]:,}</div><div class="stat-l">Videos watched</div></div>
-      <div class="stat"><div class="stat-n" style="color:#fe2c55">{tiktok_stats["liked"]:,}</div><div class="stat-l">Liked (★★★★)</div></div>
-      <div class="stat"><div class="stat-n" style="color:#fe2c55">{tiktok_stats["favorited"]:,}</div><div class="stat-l">Favorited (★★★★★)</div></div>
+      <div class="stat"><div class="stat-n" style="color:#fe2c55">{tiktok_stats["liked"]:,}</div><div class="stat-l">Liked (8/10)</div></div>
+      <div class="stat"><div class="stat-n" style="color:#fe2c55">{tiktok_stats["favorited"]:,}</div><div class="stat-l">Favorited (10/10)</div></div>
     </div>
-    <div class="dim" style="margin-top:10px;font-size:12px">watch=2★ · liked=4★ · favorited=5★ · searches and shares not tracked</div>
+    <div class="dim" style="margin-top:10px;font-size:12px">watch=4/10 · liked=8/10 · favorited=10/10 · searches and shares not tracked</div>
   </div>
 
   <div class="grid-2">
@@ -2198,10 +2210,10 @@ function renderResultCard(item) {{
     ? `<img class="result-cover" src="${{item.cover_url}}" onerror="this.style.display='none'">`
     : `<div class="result-cover-ph">${{typeEmoji(item.media_type)}}</div>`;
   const savedRating = item.rating || 0;
-  const starsHtml = [1,2,3,4,5].map(i =>
-    `<span id="sr-${{sid}}-${{i}}" class="${{i<=savedRating?'lit':''}}"
+  const starsHtml = Array.from({{length:10}}, (_,i) => i+1).map(i =>
+    `<button type="button" aria-label="Rate ${{i}} out of 10" id="sr-${{sid}}-${{i}}" class="${{i<=Math.round(savedRating*2)?'lit':''}}"
       onmouseenter="hvrItem('${{sid}}',${{i}})"
-      onmouseleave="rstItem('${{sid}}',${{savedRating}})">★</span>`
+      onmouseleave="rstItem('${{sid}}',${{savedRating}})">★</button>`
   ).join('');
   return `<div class="result-card" id="rc-${{sid}}" data-id="${{item.id}}">
     ${{cover}}
@@ -2214,6 +2226,8 @@ function renderResultCard(item) {{
     <div class="result-actions" style="margin-top:8px">
       <button class="action-btn watchlist ${{wlCls}}" id="wlbtn-${{sid}}">${{wlLabel}}</button>
       <div class="star-r" id="stars-r-${{sid}}">${{starsHtml}}</div>
+      <span class="rating-value" id="rating-r-${{sid}}">${{savedRating ? (savedRating*2)+'/10' : 'Unrated'}}</span>
+      <span class="rating-error" id="rating-error-${{sid}}" role="alert"></span>
     </div>
   </div>`;
 }}
@@ -2224,7 +2238,7 @@ function wireResultCards() {{
     const wlBtn = document.getElementById('wlbtn-'+sid);
     if (wlBtn) wlBtn.onclick = () => toggleItemWatchlist(item, wlBtn);
     const starContainer = document.getElementById('stars-r-'+sid);
-    if (starContainer) starContainer.querySelectorAll('span').forEach((s,idx) => {{
+    if (starContainer) starContainer.querySelectorAll('button').forEach((s,idx) => {{
       s.onclick = () => rateItem(item.id, idx+1);
     }});
   }});
@@ -2262,35 +2276,52 @@ async function toggleItemWatchlist(item, btn) {{
 
 // ── Star rating on search results ─────────────────────────────────────────
 function hvrItem(sid, n) {{
-  for(let i=1;i<=5;i++) {{
+  for(let i=1;i<=10;i++) {{
     const s=document.getElementById(`sr-${{sid}}-${{i}}`);
     if(s) s.style.color=i<=n?'#f0883e':'#30363d';
   }}
 }}
 function rstItem(sid, savedRating) {{
-  for(let i=1;i<=5;i++) {{
+  for(let i=1;i<=10;i++) {{
     const s=document.getElementById(`sr-${{sid}}-${{i}}`);
-    if(s) {{ s.className=''; if(i<=(savedRating||0)) s.classList.add('lit'); }}
+    if(s) {{ s.style.color=''; s.className=''; if(i<=Math.round((savedRating||0)*2)) s.classList.add('lit'); }}
   }}
 }}
-async function rateItem(itemId, stars, el) {{
+async function rateItem(itemId, position) {{
   const sid = itemId.replace(/:/g,'_');
-  // Update _lastResults so re-render shows correct state
   const idx = _lastResults.findIndex(r=>r.id===itemId);
-  if(idx>=0) _lastResults[idx].rating = stars;
-  for(let i=1;i<=5;i++) {{
-    const s=document.getElementById(`sr-${{sid}}-${{i}}`);
-    if(s) s.className=i<=stars?'lit':'';
+  if(idx<0) return;
+  const item = _lastResults[idx];
+  if(item._ratingBusy) return;
+  const label = document.getElementById('rating-r-'+sid);
+  const error = document.getElementById('rating-error-'+sid);
+  const container = document.getElementById('stars-r-'+sid);
+  error.textContent = '';
+  item._ratingBusy = true;
+  container.querySelectorAll('button').forEach(b=>b.disabled=true);
+  try {{
+    const response = await fetch(API+'/api/rate', {{
+      method:'POST', headers:{{'Content-Type':'application/json'}},
+      body:JSON.stringify({{title:item.title, year:Number(item.year)||null,
+        media_type:item.media_type, rating:position/2}})
+    }});
+    const result = await response.json();
+    if(!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Could not save rating');
+    const {{rating}} = result;
+    item.rating = rating;
+    rstItem(sid,rating);
+    if(label) label.textContent=(rating*2)+'/10';
+    if(container) container.querySelectorAll('button').forEach(s=>{{
+      s.onmouseleave=()=>rstItem(sid,rating);
+    }});
+  }} catch(e) {{
+    rstItem(sid,item.rating);
+    if(label) label.textContent=item.rating ? (item.rating*2)+'/10' : 'Unrated';
+    error.textContent=e.message || 'Could not save rating';
+  }} finally {{
+    delete item._ratingBusy;
+    container.querySelectorAll('button').forEach(b=>b.disabled=false);
   }}
-  // Update hover listeners with new saved rating
-  const container=document.getElementById(`stars-r-${{sid}}`);
-  if(container) container.querySelectorAll('span').forEach((s,idx)=>{{
-    s.onmouseleave=()=>rstItem(sid,stars);
-  }});
-  await fetch(API+'/api/interactions', {{
-    method:'POST', headers:{{'Content-Type':'application/json'}},
-    body: JSON.stringify({{item_id:itemId, interaction_type:'rating', value:String(stars)}})
-  }});
 }}
 
 // ── Related ───────────────────────────────────────────────────────────────
