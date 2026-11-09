@@ -52,10 +52,12 @@ best AS (
            ROW_NUMBER() OVER (PARTITION BY work_key ORDER BY {_source_prio('member.source')}, member_id) AS rn
     FROM member
 ),
+members AS (
+    SELECT work_key, json_group_array(member_id) AS member_ids FROM member GROUP BY work_key
+),
 works AS (
-    SELECT b.work_key, b.media_type, b.title, b.year, b.work_key AS key_in_works,
-           (SELECT group_concat(c.member_id) FROM member c WHERE c.work_key = b.work_key) AS member_ids
-    FROM best b
+    SELECT b.work_key, b.media_type, b.title, b.year, b.work_key AS key_in_works, c.member_ids
+    FROM best b JOIN members c ON c.work_key = b.work_key
     WHERE b.rn = 1
 ),
 explicit AS (

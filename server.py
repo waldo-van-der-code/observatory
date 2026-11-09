@@ -99,12 +99,8 @@ def _get_user_state(conn) -> tuple[set[str], dict[str, float | None]]:
     """Return watchlist IDs and saved ratings from every import."""
     wl_rows = get_watchlist(conn)
     wl_ids = {r["id"] for r in wl_rows}
-    rated_rows = conn.execute("""
-        SELECT m.id, ui.rating FROM media_items m
-        JOIN user_interactions ui ON ui.media_id = m.id
-        WHERE ui.rating IS NOT NULL ORDER BY ui.id
-    """).fetchall()
-    ratings = {r["id"]: r["rating"] for r in rated_rows}
+    rated_rows = conn.execute("SELECT member_ids, rating FROM my_ratings WHERE rating IS NOT NULL").fetchall()
+    ratings = {media_id: r["rating"] for r in rated_rows for media_id in json.loads(r["member_ids"])}
     return wl_ids, ratings
 
 
@@ -117,8 +113,11 @@ def _work_rating(conn, title: str, media_type: str, year=None) -> float | None:
     })
     if reason or target is None:
         return None
-    return next((r["rating"] for item_id in target["item_ids"]
-                 for r in target["current_ratings"] if r["media_id"] == item_id), None)
+    ids = target["item_ids"]
+    row = conn.execute(
+        f"SELECT r.rating FROM media_items m JOIN my_ratings r ON r.work_key = COALESCE(m.work_key, m.id) "
+        f"WHERE m.id IN ({','.join('?' * len(ids))}) AND r.rating IS NOT NULL LIMIT 1", ids).fetchone() if ids else None
+    return row["rating"] if row else None
 
 
 @app.get("/api/search")
@@ -548,11 +547,11 @@ def _culture_rating(item_id: str, imdb_id: str = "", *, title: str = "", media_t
     """Read the stored rating for a detail item, including its IMDb import."""
     with get_conn() as conn:
         row = conn.execute("""
-            SELECT ui.rating FROM media_items m
-            JOIN user_interactions ui ON ui.media_id=m.id
-            WHERE ui.rating IS NOT NULL AND
+            SELECT r.rating FROM media_items m
+            JOIN my_ratings r ON r.work_key = COALESCE(m.work_key, m.id)
+            WHERE r.rating IS NOT NULL AND
                   (m.id=? OR (? != '' AND (m.id=? OR (m.source='imdb' AND m.source_id=?))))
-            ORDER BY ui.id DESC LIMIT 1
+            LIMIT 1
         """, (item_id, imdb_id, imdb_id, imdb_id)).fetchone()
         return row["rating"] if row else _work_rating(conn, title, media_type, year)
 
@@ -762,10 +761,11 @@ async def _culture_director(name: str, api_key: str, timeout) -> JSONResponse:
     conn = get_conn()
     try:
         your_films_raw = conn.execute("""
-            SELECT m.title, m.year, ui.rating
-            FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
-            WHERE m.director=? AND ui.rating IS NOT NULL
-            ORDER BY ui.rating DESC LIMIT 10
+            SELECT m.title, m.year, r.rating
+            FROM media_items m JOIN my_ratings r ON r.work_key = COALESCE(m.work_key, m.id)
+            WHERE m.director=? AND r.rating IS NOT NULL
+            GROUP BY r.work_key
+            ORDER BY r.rating DESC LIMIT 10
         """, (name,)).fetchall()
     finally:
         conn.close()
@@ -1181,26 +1181,27 @@ async def api_ask(body: AskIn, background: BackgroundTasks):
                 raise HTTPException(404, "no such conversation")
             history = oracle_sessions.history(conn, body.session_id)
             changes = oracle_actions.session_summary(conn, body.session_id)
-        top_dirs = conn.execute("""
-            SELECT m.director, COUNT(*) n, AVG(ui.rating) avg
-            FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
-            WHERE m.director IS NOT NULL AND ui.rating IS NOT NULL AND m.source='imdb'
-            GROUP BY m.director HAVING n >= 2
+        # One row per scored work from the my_ratings view: signal-only works have no rating and never count.
+        imdb_works = """(SELECT r.work_key, r.rating, MAX(m.director) AS director
+            FROM my_ratings r JOIN media_items m ON COALESCE(m.work_key, m.id) = r.work_key
+            WHERE r.rating IS NOT NULL AND m.source='imdb' GROUP BY r.work_key)"""
+        top_dirs = conn.execute(f"""
+            SELECT director, COUNT(*) n, AVG(rating) avg FROM {imdb_works}
+            WHERE director IS NOT NULL
+            GROUP BY director HAVING n >= 2
             ORDER BY avg DESC, n DESC LIMIT 10
         """).fetchall()
-        stats = conn.execute("""
-            SELECT COUNT(*) total, AVG(ui.rating) avg
-            FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
-            WHERE m.source='imdb' AND ui.rating IS NOT NULL
-        """).fetchone()
+        stats = conn.execute(f"SELECT COUNT(*) total, AVG(rating) avg FROM {imdb_works}").fetchone()
         book_stats = conn.execute("""
-            SELECT COUNT(*) total, AVG(ui.rating) avg
-            FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
-            WHERE m.media_type='book' AND m.source='goodreads' AND ui.rating IS NOT NULL
+            SELECT COUNT(*) total, AVG(rating) avg FROM (
+                SELECT r.work_key, r.rating
+                FROM my_ratings r JOIN media_items m ON COALESCE(m.work_key, m.id) = r.work_key
+                WHERE r.rating IS NOT NULL AND m.media_type='book' AND m.source='goodreads' GROUP BY r.work_key)
         """).fetchone()
         watchlist = conn.execute("""
             SELECT m.title, m.year FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
-            WHERE ui.interaction='want' AND m.source='imdb' LIMIT 15
+            WHERE ui.interaction='want' AND m.source='imdb'
+              AND COALESCE(m.work_key, m.id) NOT IN (SELECT work_key FROM my_ratings) LIMIT 15
         """).fetchall()
         comics_authors = conn.execute("""
             SELECT m.author, COUNT(*) n

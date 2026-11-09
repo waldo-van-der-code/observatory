@@ -77,7 +77,7 @@ with tempfile.TemporaryDirectory(prefix="obs-054-eval-") as folder:
         check("the like/thumb signal is visible", bool(got and got[0]["signal"]), got)
         check("the row keeps the dated title and lists every member id",
               bool(got) and got[0]["title"] == "The Matrix" and got[0]["year"] == 1999
-              and sorted(got[0]["member_ids"].split(",")) == ["imdb:mm1", "jw:mm3", "netflix:mm2"]
+              and sorted(json.loads(got[0]["member_ids"])) == ["imdb:mm1", "jw:mm3", "netflix:mm2"]
               and got[0]["conflict"] == 0, got)
         reset()
 
@@ -140,7 +140,7 @@ with tempfile.TemporaryDirectory(prefix="obs-054-eval-") as folder:
               len(got) == 3 and len({k.split("|")[2] for k in keys}) == 3
               and any(r["media_type"] == "film" and r["year"] is None for r in got), keys)
         check("each year row keeps a member id",
-              all(len(r["member_ids"].split(",")) == 1 for r in got), [r["member_ids"] for r in got])
+              all(len(json.loads(r["member_ids"])) == 1 for r in got), [r["member_ids"] for r in got])
         reset()
 
         # One title in film and tv_show stays two works
@@ -193,7 +193,18 @@ with tempfile.TemporaryDirectory(prefix="obs-054-eval-") as folder:
         my_ratings.assign_work_keys(conn)
         got = rows()
         check("punctuation and case differences merge",
-              len(got) == 1 and len(got[0]["member_ids"].split(",")) == 2, got)
+              len(got) == 1 and len(json.loads(got[0]["member_ids"])) == 2, got)
+
+        # Regression OBS-054: a JustWatch id can contain a comma, so the list must not be comma-joined
+        media("jw:love,_actually:2003", "film", "Love, Actually", 2003, source="justwatch")
+        rated("jw:love,_actually:2003", 4.0, "manual")
+        my_ratings.assign_work_keys(conn)
+        got = rows("WHERE title='Love, Actually'")
+        try:
+            ids = json.loads(got[0]["member_ids"])
+        except ValueError:
+            ids = got[0]["member_ids"]
+        check("a member id with a comma stays one id", ids == ["jw:love,_actually:2003"], ids)
 
         # The average leaves out signal-only works (nothing invented from a like)
         media("imdb:v1", "film", "Scored Film", 2018)

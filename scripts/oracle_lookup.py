@@ -5,7 +5,6 @@ Plain text only. server.py escapes it as one block, so titles can never act as i
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from collections import defaultdict
 from datetime import date
@@ -38,44 +37,40 @@ def _wanted_only(signal: dict) -> bool:
 
 
 def load_works(conn: sqlite3.Connection) -> list[dict]:
-    """One entry per work across imports. Episodes are left out: they carry a copied show score."""
-    works: dict[tuple, dict] = {}
+    """One entry per work (my_ratings' work key). Episodes are left out: they carry a copied show score."""
+    works: dict[str, dict] = {}
     for row in conn.execute("""
-        SELECT m.media_type, m.title, m.year, m.author, u.interaction, u.rating, u.date_completed, u.date_added,
-               u.source, u.shelf
+        SELECT COALESCE(m.work_key, m.id) AS wk, m.media_type, m.title, m.year, m.author, u.interaction, u.rating,
+               u.date_completed, u.date_added, u.source, u.shelf
         FROM media_items m JOIN user_interactions u ON u.media_id=m.id
         WHERE m.media_type <> 'tv_episode' ORDER BY u.id"""):
-        key = ("film" if row["media_type"] == "movie" else row["media_type"], norm(row["title"]), row["year"])
-        if not key[1]:
+        if not norm(row["title"]):
             continue
-        work = works.setdefault(key, {"group": key[0], "key": key[1], "title": " ".join(row["title"].split()),
-                                      "year": row["year"],
-                                      "author": row["author"], "signals": []})
+        work = works.setdefault(row["wk"], {
+            "group": "film" if row["media_type"] == "movie" else row["media_type"], "key": norm(row["title"]),
+            "title": " ".join(row["title"].split()), "year": row["year"], "author": row["author"], "signals": [],
+            "rating": None, "signal": None, "rated_at": None, "conflict": 0, "export_rating": None,
+            "rating_source": None})
+        work["year"] = work["year"] or row["year"]
         work["author"] = work["author"] or row["author"]
         work["signals"].append(dict(row))
-    # A row without a year joins the only dated version of that title; with several versions it stays apart.
-    years = defaultdict(set)
-    for group, key, year in works:
-        if year is not None:
-            years[group, key].add(year)
-    for undated in [k for k in works if k[2] is None and len(years[k[:2]]) == 1]:
-        moved, dated = works.pop(undated), works[(*undated[:2], next(iter(years[undated[:2]])))]
-        dated["signals"] += moved["signals"]
-        dated["author"] = dated["author"] or moved["author"]
+    for r in conn.execute("SELECT * FROM my_ratings"):
+        if r["work_key"] in works:
+            works[r["work_key"]].update(rating=r["rating"], signal=r["signal"], rated_at=r["rated_at"],
+                                        conflict=r["conflict"], export_rating=r["export_rating"],
+                                        rating_source=r["rating_source"])
     return list(works.values())
 
 
+def _in_library(work: dict) -> bool:
+    return work["rating"] is not None or work["signal"] is not None or not all(_wanted_only(s) for s in work["signals"])
+
+
 def _library_line(work: dict) -> str:
-    scores, signals = [], []
-    for signal in work["signals"]:
-        if signal["rating"] is None:
-            continue
-        label = _inferred(signal)
-        if label:
-            signals.append(label)
-        else:
-            scores.append(f"{signal['rating'] * 2:g}")
-    verdict = ", ".join([" or ".join(dict.fromkeys(scores))] * bool(scores) + list(dict.fromkeys(signals)))
+    verdict = ", ".join(([f"{work['rating'] * 2:g}"] if work["rating"] is not None else []) +
+                        ([work["signal"]] if work["signal"] else []))
+    if verdict and work["conflict"] and work["export_rating"] is not None:
+        verdict += f" (export says {work['export_rating'] * 2:g})"
     if work["group"] in ("book", "comic") and work["author"]:
         name = f"{work['title']} by {work['author']}"
     else:
@@ -85,15 +80,18 @@ def _library_line(work: dict) -> str:
 
 def _full_line(work: dict) -> str:
     facts = []
+    if work["rating"] is not None:
+        source = {"imdb": "IMDb", "goodreads": "Goodreads", "app": "his own rating"}.get(work["rating_source"], "rating")
+        when = f" on {work['rated_at'][:10]}" if work["rated_at"] else ""
+        facts.append(f"{source} {work['rating'] * 2:g}/10{when}")
+        if work["conflict"] and work["export_rating"] is not None:
+            facts.append(f"export says {work['export_rating'] * 2:g}/10")
     for signal in work["signals"]:
-        source = SOURCE_LABELS.get(signal["source"], signal["source"] or "unknown source")
-        if signal["rating"] is not None:
-            label = _inferred(signal)
-            when = f" on {signal['date_completed'][:10]}" if signal["date_completed"] else ""
-            facts.append(f"{source} {label}" if label else f"{source} {signal['rating'] * 2:g}/10{when}")
+        if signal["rating"] is not None and _inferred(signal):
+            facts.append(f"{SOURCE_LABELS.get(signal['source'], signal['source'])} {_inferred(signal)}")
     if any(_wanted_only(s) for s in work["signals"]):
         facts.append("on his watchlist")
-    if not any(s["rating"] is not None for s in work["signals"]) and not all(_wanted_only(s) for s in work["signals"]):
+    if work["rating"] is None and work["signal"] is None and not all(_wanted_only(s) for s in work["signals"]):
         facts.append("seen, no score recorded")
     year = f"{work['year']}, " if work["year"] else ""
     return f"{work['title']} ({year}{work['group']}): {'; '.join(dict.fromkeys(facts))}"
@@ -122,37 +120,17 @@ def _mentions(works: list[dict], message: str) -> str:
     return shown + (f"\n{len(lines) - MENTION_CAP} more not shown" if len(lines) > MENTION_CAP else "")
 
 
-def _chat_rating_days(conn: sqlite3.Connection) -> dict[tuple, str]:
-    """Chat ratings that changed an import keep the import's date, so the action log has the real day."""
-    oracle_actions.init_table(conn)
-    days = {}
-    for action, when in conn.execute("SELECT action, updated_at FROM oracle_actions WHERE status='applied' ORDER BY id"):
-        action = json.loads(action)
-        if action.get("action") == "rate":
-            days[norm(action.get("title", "")), action.get("year")] = when[:10]
-    return days
-
-
-def _recent(works: list[dict], chat_days: dict[tuple, str]) -> str:
+def _recent(works: list[dict]) -> str:
     today = date.today().isoformat()
-    dated = []
-    for work in works:
-        days = [(s["date_completed"] or (s["date_added"] if s["source"] in ("oracle", "manual") else None) or "")[:10]
-                for s in work["signals"] if s["rating"] is not None and _inferred(s) != "subscribed"]
-        days += [chat_days.get((work["key"], year), "") for year in (work["year"], None)]
-        days = [d for d in days if d and d <= today]
-        if days:
-            dated.append((max(days), work))
-    dated.sort(key=lambda pair: pair[0], reverse=True)
-    return "\n".join(f"{day}: {_library_line(work)}" for day, work in dated[:RECENT_CAP]) or "none"
+    dated = sorted((w for w in works if w["rating"] is not None and w["rated_at"] and w["rated_at"][:10] <= today),
+                   key=lambda w: w["rated_at"], reverse=True)
+    return "\n".join(f"{w['rated_at'][:10]}: {_library_line(w)}" for w in dated[:RECENT_CAP]) or "none"
 
 
 def _library(works: list[dict]) -> str:
     lines = []
     for group, heading in GROUPS:
-        seen = sorted((w for w in works if w["group"] == group
-                       and not all(_wanted_only(s) and s["rating"] is None for s in w["signals"])),
-                      key=lambda w: w["key"])
+        seen = sorted((w for w in works if w["group"] == group and _in_library(w)), key=lambda w: w["key"])
         if seen:
             lines.append(f"[{heading}]")
             lines += [_library_line(w) for w in seen]
@@ -162,6 +140,6 @@ def _library(works: list[dict]) -> str:
 def library_data(conn: sqlite3.Connection, message: str) -> str:
     works = load_works(conn)
     return (f"TITLES POSSIBLY MENTIONED IN HIS LATEST MESSAGE:\n{_mentions(works, message)}\n\n"
-            f"RECENTLY RATED (newest first, by recorded date):\n{_recent(works, _chat_rating_days(conn))}\n\n"
+            f"RECENTLY RATED (newest first, by recorded date):\n{_recent(works)}\n\n"
             f"FULL LIBRARY (everything he has seen or rated; after the | is his score out of ten or what is known "
             f"instead):\n{_library(works)}")

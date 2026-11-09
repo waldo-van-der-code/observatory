@@ -45,6 +45,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import server  # noqa: E402
 from db import get_conn, init_db  # noqa: E402
+import app_ratings  # noqa: E402
+import my_ratings  # noqa: E402
 
 failures = 0
 
@@ -60,6 +62,8 @@ def seed() -> None:
         DB.unlink()
     with get_conn() as c:
         init_db(c)
+        app_ratings.init_table(c)
+        my_ratings.init(c)  # the reseed replaces the database, as server startup would prepare it
         c.executemany("INSERT INTO media_items (id, media_type, title, year, source, source_id) VALUES (?,?,?,?,?,?)", [
             ("jw:dune:2021", "film", "Dune", 2021, "justwatch", "dune"),
             ("netflix:dune", "film", "Dune", None, "netflix", "dune"),
