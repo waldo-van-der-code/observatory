@@ -70,12 +70,12 @@ def _authors_agree(csv_author: str | None, db_author: str | None) -> bool:
 
 def find_in_db(conn, title: str, author: str | None = None) -> str | None:
     """Return media_items.id if this book is already in the DB (case-insensitive), else None."""
-    row = conn.execute(
+    for row in conn.execute(
         "SELECT id, author FROM media_items WHERE lower(title)=lower(?) AND media_type='book'",
         (title.strip(),),
-    ).fetchone()
-    if row and _authors_agree(author, row["author"]):
-        return row["id"]
+    ).fetchall():
+        if _authors_agree(author, row["author"]):
+            return row["id"]
     # Try without subtitle (everything after ':'); a prefix match needs a provided author on both sides.
     short = title.split(":")[0].strip()
     if short != title:
@@ -96,14 +96,16 @@ def main():
     conn = get_conn()
     init_db(conn)
 
-    # Remove the old 4-book stub entries
-    old_ids = [r["id"] for r in conn.execute(
-        "SELECT id FROM media_items WHERE source='audible' AND id NOT IN (SELECT media_id FROM user_interactions WHERE rating IS NOT NULL)"
-    ).fetchall()]
+    # Remove the old 4-book stub entries, and only when every row of an item is unrated and from this import
+    old_ids = [r["id"] for r in conn.execute("""
+        SELECT id FROM media_items WHERE source='audible' AND id NOT IN (
+            SELECT media_id FROM user_interactions WHERE rating IS NOT NULL
+            UNION
+            SELECT media_id FROM user_interactions WHERE source IS NOT 'audible'
+        )""").fetchall()]
     for oid in old_ids:
         conn.execute("DELETE FROM user_interactions WHERE media_id=?", (oid,))
         conn.execute("DELETE FROM media_items WHERE id=?", (oid,))
-    conn.commit()
 
     matched = new_items = already_noted = 0
 

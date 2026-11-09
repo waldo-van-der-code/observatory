@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import gc
 import os
 import sys
 import tempfile
@@ -139,6 +140,18 @@ with tempfile.TemporaryDirectory(prefix="obs-054-eval-") as folder:
     app_row = conn.execute("SELECT rating FROM app_ratings WHERE media_id='jw:prized_thing:2015'").fetchone()
     check("the app rating row is still recorded", bool(app_row) and app_row["rating"] == 2.5, dict(app_row) if app_row else None)
 
+    # Regression OBS-054: a like rated equal to its imported value must not count twice
+    write_csv(ingest_justwatch.LIKED_CSV, [jw_row("Twin Value", "2016")])
+    ingest_justwatch.ingest_liked(conn)
+    app_ratings.set_rating(conn, ["jw:twin_value:2016"], 4.5, "rate")
+    conn.commit()
+    ingest_justwatch.ingest_liked(conn)
+    twin = lambda: [(r["rating"], r["source"]) for r in conn.execute(
+        "SELECT rating, source FROM user_interactions WHERE media_id='jw:twin_value:2016' AND rating IS NOT NULL ORDER BY id")]
+    check("a like valued equal to the app rating stays one oracle row", twin() == [(4.5, "oracle")], twin())
+    ingest_justwatch.ingest_liked(conn)
+    check("another re-import of the equal valued like changes nothing", twin() == [(4.5, "oracle")], twin())
+
     # ---------- Fix C: Audible author-aware matching ----------
     seed(conn, "gr:1", "book", "Dune Messiah", None, author="Frank Herbert")
     seed(conn, "gr:2", "book", "Hyperion", None, author="Dan Simmons")
@@ -163,6 +176,12 @@ with tempfile.TemporaryDirectory(prefix="obs-054-eval-") as folder:
     check("prefix title with the author missing is refused", find("The Will of Many: Part One", None) is None,
           find("The Will of Many: Part One", None))
 
+    # Regression OBS-054: two books with one title, the first with another author, must still find the second
+    seed(conn, "gr:sameA", "book", "Same Title", None, author="Ann Other")
+    seed(conn, "gr:sameB", "book", "Same Title", None, author="Bob First")
+    check("two books with one title match the agreeing author",
+          find("Same Title", "Bob First") == "gr:sameB", find("Same Title", "Bob First"))
+
     # Regression OBS-054: a missing Audible CSV must not delete the books already imported
     conn.execute("INSERT INTO media_items (id, media_type, title, source, source_id) VALUES ('au:kept', 'book', 'Kept Book', 'audible', 'kept')")
     conn.execute("INSERT INTO user_interactions (media_id, interaction, source) VALUES ('au:kept', 'completed', 'audible')")
@@ -173,6 +192,33 @@ with tempfile.TemporaryDirectory(prefix="obs-054-eval-") as folder:
         pass
     check("a missing Audible CSV keeps existing Audible books",
           conn.execute("SELECT 1 FROM media_items WHERE id='au:kept'").fetchone() is not None)
+
+    # Regression OBS-054: a CSV that fails mid-run must not delete the books the early cleanup removed
+    conn.execute("INSERT INTO media_items (id, media_type, title, source, source_id) VALUES ('au:stays', 'book', 'Stays Book', 'audible', 'stays')")
+    conn.execute("INSERT INTO user_interactions (media_id, interaction, source) VALUES ('au:stays', 'completed', 'audible')")
+    conn.commit()
+    ingest_audible.AUDIBLE_CSV.write_text("book,auth\nWrong Header Book,Someone\n", encoding="utf-8")
+    try:
+        ingest_audible.main()
+    except Exception:
+        pass
+    gc.collect()  # drop main()'s failed connection so its open transaction rolls back
+    check("a broken Audible CSV keeps existing Audible books",
+          conn.execute("SELECT 1 FROM media_items WHERE id='au:stays'").fetchone() is not None)
+
+    # Regression OBS-054: an au: item with a chat added seen row survives a normal run that does not list it
+    conn.execute("INSERT INTO media_items (id, media_type, title, source, source_id) VALUES ('au:chatted', 'book', 'Chatted Book', 'audible', 'chatted')")
+    conn.executemany("INSERT INTO user_interactions (media_id, interaction, shelf, source) VALUES (?,?,?,?)", [
+        ("au:chatted", "seen", "seen", "oracle"),
+        ("au:chatted", "completed", None, "audible"),
+    ])
+    conn.commit()
+    write_csv(ingest_audible.AUDIBLE_CSV, [{"title": "Listened Book", "author": "An Author"}])
+    ingest_audible.main()
+    check("a chat added seen row keeps its au: item through a normal run",
+          conn.execute("SELECT 1 FROM media_items WHERE id='au:chatted'").fetchone() is not None)
+    check("the chat added seen row itself survives",
+          conn.execute("SELECT 1 FROM user_interactions WHERE media_id='au:chatted' AND source='oracle'").fetchone() is not None)
 
     conn.close()
 

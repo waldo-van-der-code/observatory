@@ -87,11 +87,10 @@ def reapply(conn: sqlite3.Connection) -> int:
             corrected += 1
             continue
         differing = [r[0] for r in current if r[0] != rating]
-        if not differing:
-            continue
-        conn.execute("UPDATE app_ratings SET import_rating=? WHERE media_id=?", (differing[-1], media_id))
-        conn.execute(f"UPDATE user_interactions SET {RERATE_SQL} WHERE media_id=? AND rating IS NOT NULL AND rating<>?",
-                     (rating, media_id, rating))
+        if differing:
+            conn.execute("UPDATE app_ratings SET import_rating=? WHERE media_id=?", (differing[-1], media_id))
+        conn.execute(f"UPDATE user_interactions SET {RERATE_SQL} WHERE media_id=? AND rating IS NOT NULL",
+                     (rating, media_id))
         # An import re-adds a like or thumb that was already converted; keep one row per source
         conn.execute("""DELETE FROM user_interactions WHERE media_id=? AND rating IS NOT NULL AND id NOT IN
                         (SELECT min(id) FROM user_interactions WHERE media_id=? AND rating IS NOT NULL GROUP BY source)""",
