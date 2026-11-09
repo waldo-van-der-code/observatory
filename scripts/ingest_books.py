@@ -90,7 +90,7 @@ def ingest_goodreads(conn) -> tuple[int, int]:
                 (item_id, interaction, rating, date_read, date_add, shelf, "goodreads"),
             )
 
-    app_ratings.reapply(conn)
+    app_ratings.reapply(conn, "goodreads")
     conn.commit()
     return inserted, updated
 

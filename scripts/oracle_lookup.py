@@ -122,7 +122,9 @@ def _mentions(works: list[dict], message: str) -> str:
 
 def _recent(works: list[dict]) -> str:
     today = date.today().isoformat()
-    dated = sorted((w for w in works if w["rating"] is not None and w["rated_at"] and w["rated_at"][:10] <= today),
+    # A like or thumb is something he did; a podcast subscription is not a verdict.
+    dated = sorted((w for w in works if (w["rating"] is not None or w["signal"] not in (None, "subscribed"))
+                    and w["rated_at"] and w["rated_at"][:10] <= today),
                    key=lambda w: w["rated_at"], reverse=True)
     return "\n".join(f"{w['rated_at'][:10]}: {_library_line(w)}" for w in dated[:RECENT_CAP]) or "none"
 

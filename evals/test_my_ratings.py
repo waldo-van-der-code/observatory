@@ -301,6 +301,130 @@ with tempfile.TemporaryDirectory(prefix="obs-054-eval-") as folder:
           [i["rating"] for i in entries if i["title"] == "App Replace"] == [5.0], entries)
     c3.close()
 
+    # ── Regression OBS-054 step 3 review: findings before deploy ──────────────
+    def statements(call):
+        seen = []
+        conn.set_trace_callback(seen.append)
+        try:
+            call()
+        finally:
+            conn.set_trace_callback(None)
+        return [s.split()[0].upper() for s in seen]
+
+    def reimport(media_id, value, source):
+        """What an importer does: replace its own row with the export's value, then reapply."""
+        conn.execute("DELETE FROM user_interactions WHERE media_id=? AND source=?", (media_id, source))
+        rated(media_id, value, source)
+        try:
+            app_ratings.reapply(conn, source)
+        except TypeError as e:
+            check("reapply knows which export just ran", False, repr(e))
+            app_ratings.reapply(conn)
+
+    def import_rating(media_id):
+        return conn.execute("SELECT import_rating FROM app_ratings WHERE media_id=?", (media_id,)).fetchone()[0]
+
+    def book(item_id, title, author, year=2000, source="goodreads"):
+        conn.execute("INSERT INTO media_items (id,media_type,title,author,year,source,source_id) VALUES (?,?,?,?,?,?,?)",
+                     (item_id, "book", title, author, year, source, item_id))
+
+    WRITES = {"DROP", "CREATE", "ALTER", "UPDATE", "INSERT", "DELETE", "BEGIN", "COMMIT"}
+    reset()
+    conn.commit()
+    version = conn.execute("PRAGMA schema_version").fetchone()[0]
+    my_ratings.init(conn)
+    conn.commit()
+    check("installing an unchanged view does not touch the schema",
+          conn.execute("PRAGMA schema_version").fetchone()[0] == version)
+    check("the Taste Map writes nothing once the view exists",
+          not WRITES & set(statements(lambda: build_brain._get_top_items(conn))))
+    conn.execute("DROP VIEW my_ratings")
+    conn.execute("CREATE VIEW my_ratings AS SELECT 1 AS old_shape")
+    conn.commit()
+    order = statements(lambda: my_ratings.init(conn))
+    conn.commit()
+    check("replacing a changed view is one transaction",
+          "BEGIN" in order and "DROP" in order and order.index("BEGIN") < order.index("DROP")
+          and "COMMIT" in order[order.index("DROP"):], order)
+
+    media("rev:thumb", "film", "Thumb Film", 2001, source="netflix")
+    rated("rev:thumb", 4.0, "netflix")
+    app_ratings.set_rating(conn, ["rev:thumb"], 5.0, "chat")
+    reimport("rev:thumb", 4.0, "netflix")
+    got = rows("WHERE title='Thumb Film'")
+    check("a re-imported thumb is not an export score",
+          import_rating("rev:thumb") is None and got[0]["conflict"] == 0 and got[0]["export_rating"] is None, got)
+
+    media("rev:agree", "film", "Agree Film", 2002)
+    rated("rev:agree", 3.0, "imdb")
+    app_ratings.set_rating(conn, ["rev:agree"], 5.0, "chat")
+    reimport("rev:agree", 3.0, "imdb")
+    check("a differing export is kept", import_rating("rev:agree") == 3.0, import_rating("rev:agree"))
+    reimport("rev:agree", 3.0, "goodreads")
+    check("another export's run leaves it alone", import_rating("rev:agree") == 3.0, import_rating("rev:agree"))
+    conn.execute("DELETE FROM user_interactions WHERE media_id='rev:agree' AND source='goodreads'")
+    reimport("rev:agree", 5.0, "imdb")
+    got = rows("WHERE title='Agree Film'")
+    check("an export that now agrees ends the conflict",
+          import_rating("rev:agree") is None and got[0]["conflict"] == 0, got)
+    for script, source in (("ingest_films.py", "imdb"), ("ingest_books.py", "goodreads")):
+        check(f"{script} names its export",
+              f'app_ratings.reapply(conn, "{source}")' in (ROOT / "scripts" / script).read_text())
+
+    reset()
+    book("rev:b1", "Emma", "Jane Austen", 2003)
+    book("rev:b2", "Emma", "Meg Cabot", 2003)
+    rated("rev:b1", 4.0, "goodreads")
+    rated("rev:b2", 2.0, "goodreads")
+    book("rev:b3", "Dune", "Frank Herbert", 2005)
+    book("rev:b4", "Dune", "Herbert, Frank", 2005, source="audible")
+    rated("rev:b3", 5.0, "goodreads")
+    media("rev:s1", "film", "$", 1971)
+    media("rev:s2", "film", "%", 1971)
+    rated("rev:s1", 4.0, "imdb")
+    rated("rev:s2", 2.0, "imdb")
+    my_ratings.assign_work_keys(conn)
+    check("same title and year by different authors stay two works", len(rows("WHERE title='Emma'")) == 2, rows("WHERE title='Emma'"))
+    check("one book written two ways stays one work", len(rows("WHERE title='Dune'")) == 1, rows("WHERE title='Dune'"))
+    check("titles of only symbols stay separate works", len(rows("WHERE media_type='film'")) == 2, rows("WHERE media_type='film'"))
+
+    reset()
+    media("rev:gr", "book", "Shelf Date", 2000, source="goodreads")
+    rated("rev:gr", 4.0, "goodreads", "2026-08-08")
+    media("rev:or", "film", "Chat Date", 2000, source="oracle")
+    rated("rev:or", 4.0, "oracle", "2026-08-09")
+    media("rev:like", "film", "Liked Late", 2000, source="justwatch")
+    conn.execute("INSERT INTO user_interactions (media_id,interaction,rating,date_added,date_completed,source) VALUES (?,?,?,?,?,?)",
+                 ("rev:like", "rated", 4.5, "2026-08-10", "2026-08-10", "justwatch_liked"))
+    media("rev:both", "film", "Mixed Signals", 2000, source="netflix")
+    rated("rev:both", 4.0, "netflix")
+    rated("rev:both", 1.5, "netflix")
+    media("rev:pod", "podcast", "Pod Review", None, source="pocket_casts")
+    conn.execute("INSERT INTO user_interactions (media_id,interaction,rating,source) VALUES (?,?,?,?)",
+                 ("rev:pod", "completed", 3.0, "pocket_casts"))
+    for item_id, stored in (("rev:se1", 4.0), ("rev:se2", 3.0)):
+        conn.execute("INSERT INTO media_items (id,media_type,title,author,year,source,source_id,series_name,series_pos) VALUES (?,?,?,?,?,?,?,?,?)",
+                     (item_id, "book", item_id, "Serial Author", 2000, "goodreads", item_id, "Review Series", 1))
+        conn.execute("INSERT INTO user_interactions (media_id,interaction,rating,shelf,source) VALUES (?,?,?,?,?)",
+                     (item_id, "rated", stored, "read", "goodreads"))
+    my_ratings.assign_work_keys(conn)
+    conn.commit()
+    check("a Goodreads shelf date is not a rating date", rows("WHERE title='Shelf Date'")[0]["rated_at"] is None, rows("WHERE title='Shelf Date'"))
+    check("a chat rating keeps its date", rows("WHERE title='Chat Date'")[0]["rated_at"] == "2026-08-09", rows("WHERE title='Chat Date'"))
+    check("a like carries its date", rows("WHERE title='Liked Late'")[0]["rated_at"] == "2026-08-10", rows("WHERE title='Liked Late'"))
+    import oracle_lookup
+    check("likes stay in the Oracle's recent list", "Liked Late" in oracle_lookup._recent(oracle_lookup.load_works(conn)))
+    mixed = rows("WHERE title='Mixed Signals'")
+    check("contradictory signals both show",
+          bool(mixed) and "thumbs up" in mixed[0]["signal"] and "thumbs down" in mixed[0]["signal"], mixed)
+    page = build_dashboard.render(conn)
+    check("a subscribed podcast shows the word, not a question mark",
+          re.search(r"Pod Review</span>\s*<span[^>]*>subscribed", page) is not None or
+          re.search(r"Pod Review[\s\S]{0,300}?subscribed", page) is not None,
+          re.findall(r"Pod Review[\s\S]{0,200}", page)[:1])
+    check("a series averages its rated works", re.search(r"Review Series[\s\S]{0,400}?7\.0/10", page) is not None,
+          re.findall(r"Review Series[\s\S]{0,300}", page)[:1])
+
 conn.close()
 print(f"\n{checks - failures}/{checks} passed")
 sys.exit(1 if failures else 0)

@@ -150,9 +150,11 @@ def _zone_for_item(media_type: str, genres_json: str | None, title: str) -> str 
 
 def _get_top_items(conn: sqlite3.Connection) -> dict[str, list[dict]]:
     """Return up to 8 top-rated items per zone. Poster URLs fetched lazily by the API."""
-    app_ratings.init_table(conn)
-    my_ratings.init(conn)
-    conn.commit()
+    # This runs on every Taste Map request, so it only writes on a database that has never had the view.
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='my_ratings'").fetchone():
+        app_ratings.init_table(conn)
+        my_ratings.init(conn)
+        conn.commit()
     rows = conn.execute("""
         SELECT r.work_key, m.id, m.title, r.media_type, m.source, m.source_id,
                m.cover_url, m.year, m.genres, m.author, r.rating

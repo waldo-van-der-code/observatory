@@ -89,7 +89,7 @@ def ingest_ratings(conn) -> tuple[int, int]:
                 "(media_id, interaction, rating, date_completed, source) VALUES (?,?,?,?,?)",
                 (item_id, "rated", rating, date, "imdb"),
             )
-    app_ratings.reapply(conn)
+    app_ratings.reapply(conn, "imdb")
     conn.commit()
     return inserted, updated
 

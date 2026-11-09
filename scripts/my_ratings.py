@@ -29,6 +29,11 @@ def _inferred_sql() -> str:
                        for source, value in app_ratings.INFERRED_RATINGS)
 
 
+def _dated_sql() -> str:
+    """When a row was rated. date_added is only that for ratings made here: on imports it is a shelf date."""
+    return "COALESCE(ui.date_completed, CASE WHEN ui.source IN ('oracle','manual') THEN ui.date_added END)"
+
+
 def _source_prio(alias: str = "m.source") -> str:
     """Best import source, lower wins: IMDb first, then Goodreads, later imports after that."""
     from oracle_actions import SOURCE_PRIORITY
@@ -69,7 +74,7 @@ explicit AS (
     SELECT COALESCE(m.work_key, m.id),
            CASE ui.source WHEN 'imdb' THEN 1 WHEN 'goodreads' THEN 2 ELSE 3 END,
            CASE ui.source WHEN 'imdb' THEN 'imdb' WHEN 'goodreads' THEN 'goodreads' ELSE 'other' END,
-           ui.rating, COALESCE(ui.date_completed, ui.date_added), NULL
+           ui.rating, {_dated_sql()}, NULL
     FROM media_items m JOIN user_interactions ui ON ui.media_id = m.id
     WHERE m.media_type <> 'tv_episode' AND ui.rating IS NOT NULL AND NOT ({_inferred_sql()})
 ),
@@ -102,20 +107,22 @@ loser AS (
 export AS (
     SELECT c.work_key AS key_in_export,
            CASE WHEN c.conflict THEN COALESCE(
-                (SELECT import_rating FROM ranked r WHERE r.work_key = c.work_key AND r.import_rating IS NOT NULL LIMIT 1),
+                (SELECT import_rating FROM ranked r WHERE r.work_key = c.work_key AND r.import_rating IS NOT NULL
+                 ORDER BY r.rn LIMIT 1),
                 (SELECT l.val FROM loser l WHERE l.work_key = c.work_key AND l.lrn = 1)) END AS export_rating
     FROM conf c
 ),
 signal AS (
     SELECT COALESCE(m.work_key, m.id) AS work_key,
-           MIN(CASE {"".join(f"WHEN ui.source='{source}' AND ui.rating={value:g} THEN '{label}' "
-                             for (source, value), label in app_ratings.INFERRED_RATINGS.items())} END) AS signal
+           REPLACE(GROUP_CONCAT(DISTINCT CASE {"".join(f"WHEN ui.source='{source}' AND ui.rating={value:g} THEN '{label}' "
+                             for (source, value), label in app_ratings.INFERRED_RATINGS.items())} END), ',', ' / ') AS signal,
+           MAX({_dated_sql()}) AS signal_at
     FROM media_items m JOIN user_interactions ui ON ui.media_id = m.id AND ui.rating IS NOT NULL
     WHERE m.media_type <> 'tv_episode' AND ({_inferred_sql()})
     GROUP BY work_key
 )
 SELECT w.key_in_works AS work_key, w.media_type, w.title, w.year,
-       wn.rating, wn.rating_source, sgn.signal, wn.rated_at,
+       wn.rating, wn.rating_source, sgn.signal, COALESCE(wn.rated_at, sgn.signal_at) AS rated_at,
        COALESCE(conf.conflict, 0) AS conflict, exp.export_rating, w.member_ids
 FROM works w
 LEFT JOIN winner wn ON wn.work_key = w.key_in_works
@@ -132,22 +139,52 @@ def _ensure_work_key(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE media_items ADD COLUMN work_key TEXT")
 
 
+def _title_key(title: str) -> str:
+    """A title made only of symbols normalises to nothing, so it keeps its own text."""
+    return norm(title) or title.strip().lower()
+
+
+def _last_names(author: str | None) -> set[str]:
+    return {norm(part).split()[-1] for part in (author or "").split(",") if norm(part)}
+
+
+def _author_marks(rows: list) -> dict[str, str]:
+    """Books sharing a title: when the authors differ, each row gets a mark that keeps the works apart."""
+    by_title: dict[tuple, list] = {}
+    for r in rows:
+        if r["media_type"] in ("book", "comic") and _last_names(r["author"]):
+            by_title.setdefault((r["media_type"], _title_key(r["title"])), []).append(r)
+    marks: dict[str, str] = {}
+    for same_title in by_title.values():
+        authors: list[set[str]] = []
+        for r in same_title:
+            names = _last_names(r["author"])
+            known = next((a for a in authors if a & names), None)
+            if known is None:
+                authors.append(names)
+            else:
+                known |= names
+        if len(authors) > 1:
+            for r in same_title:
+                marks[r["id"]] = min(next(a for a in authors if a & _last_names(r["author"])))
+    return marks
+
+
 def assign_work_keys(conn: sqlite3.Connection) -> None:
     """Give every non-episode media row its work key, updating only rows whose key changed."""
     _ensure_work_key(conn)
-    rows = conn.execute(
-        "SELECT id, media_type, title, year, work_key FROM media_items WHERE media_type <> 'tv_episode'").fetchall()
+    rows = conn.execute("SELECT id, media_type, title, author, year, work_key FROM media_items "
+                        "WHERE media_type <> 'tv_episode'").fetchall()
+    marks = _author_marks(rows)
     years: dict[tuple, set] = {}
     for r in rows:
-        years.setdefault((_group(r["media_type"]), norm(r["title"])), set()).add(r["year"])
+        years.setdefault((_group(r["media_type"]), _title_key(r["title"]), marks.get(r["id"], "")), set()).add(r["year"])
     updates = []
     for r in rows:
-        group, title = _group(r["media_type"]), norm(r["title"])
-        if r["year"] is not None:
-            key = f"{group}|{title}|{r['year']}"
-        else:
-            possible = {y for y in years[(group, title)] if y is not None}
-            key = f"{group}|{title}|{next(iter(possible))}" if len(possible) == 1 else f"{group}|{title}|"
+        group, title, mark = _group(r["media_type"]), _title_key(r["title"]), marks.get(r["id"], "")
+        possible = {y for y in years[(group, title, mark)] if y is not None}
+        year = r["year"] if r["year"] is not None else (next(iter(possible)) if len(possible) == 1 else "")
+        key = f"{group}|{title}|{year}" + (f"|{mark}" if mark else "")
         if key != r["work_key"]:
             updates.append((key, r["id"]))
     if updates:
@@ -155,9 +192,23 @@ def assign_work_keys(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE media_items SET work_key=NULL WHERE media_type='tv_episode' AND work_key IS NOT NULL")
 
 
-def init(conn: sqlite3.Connection) -> None:
-    """Add work_key, create or replace the view, assign keys. No commit: safe inside a transaction."""
-    _ensure_work_key(conn)
+def _install_view(conn: sqlite3.Connection) -> None:
+    """Replace the view only when its definition changed, in one step, so a reader never finds it missing."""
+    sql = _view_sql().strip()
+    current = conn.execute("SELECT sql FROM sqlite_master WHERE type='view' AND name=?", (VIEW_NAME,)).fetchone()
+    if current and current[0].strip() == sql:
+        return
+    own_transaction = not conn.in_transaction
+    if own_transaction:
+        conn.execute("BEGIN IMMEDIATE")
     conn.execute(f"DROP VIEW IF EXISTS {VIEW_NAME}")
-    conn.execute(_view_sql())
+    conn.execute(sql)
+    if own_transaction:
+        conn.commit()
+
+
+def init(conn: sqlite3.Connection) -> None:
+    """Add work_key, install the view, assign keys. Never commits a caller's transaction."""
+    _ensure_work_key(conn)
+    _install_view(conn)
     assign_work_keys(conn)

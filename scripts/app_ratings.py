@@ -75,22 +75,29 @@ def set_rating(conn: sqlite3.Connection, ids: list[str], rating: float, origin: 
     my_ratings.assign_work_keys(conn)
 
 
-def reapply(conn: sqlite3.Connection) -> int:
-    """Put in-app ratings back after an import, in the importer's transaction. Returns rows corrected."""
+def reapply(conn: sqlite3.Connection, export_source: str | None = None) -> int:
+    """Put in-app ratings back after an import, in the importer's transaction. Returns rows corrected.
+
+    export_source names the export that was just re-read: only its rows speak for it, so only then
+    can an export that now agrees with the in-app rating end a recorded difference.
+    """
     init_table(conn)
     corrected = 0
     for app in conn.execute("SELECT media_id, rating, rated_at FROM app_ratings").fetchall():
         media_id, rating = app[0], app[1]
-        current = conn.execute("SELECT rating FROM user_interactions WHERE media_id=? AND rating IS NOT NULL ORDER BY id",
+        current = conn.execute("SELECT rating, source FROM user_interactions WHERE media_id=? AND rating IS NOT NULL ORDER BY id",
                                (media_id,)).fetchall()
         if not current:
             conn.execute("INSERT INTO user_interactions (media_id, interaction, rating, date_added, source) VALUES (?,?,?,?,?)",
                          (media_id, "rated", rating, app[2], "oracle"))
             corrected += 1
             continue
-        differing = [r[0] for r in current if r[0] != rating]
+        scoped = [r for r in current if export_source in (None, r[1])]
+        differing = [r[0] for r in scoped if r[0] != rating and (r[1], r[0]) not in INFERRED_RATINGS]
         if differing:
             conn.execute("UPDATE app_ratings SET import_rating=? WHERE media_id=?", (differing[-1], media_id))
+        elif export_source and scoped:
+            conn.execute("UPDATE app_ratings SET import_rating=NULL WHERE media_id=?", (media_id,))
         conn.execute(f"UPDATE user_interactions SET {RERATE_SQL} WHERE media_id=? AND rating IS NOT NULL",
                      (rating, media_id))
         # An import re-adds a like or thumb that was already converted; keep one row per source

@@ -141,14 +141,18 @@ def render(conn) -> str:
             recs.append(r)
 
     series_data = conn.execute("""
-        SELECT series_name, count(*) read_count, min(series_pos) first_pos, max(series_pos) last_pos,
-               (SELECT avg(r.rating) FROM my_ratings r WHERE r.work_key IN
-                  (SELECT COALESCE(m2.work_key, m2.id) FROM media_items m2
-                   JOIN user_interactions u2 ON u2.media_id=m2.id
-                   WHERE m2.series_name=m.series_name AND u2.shelf='read')) avg_rating
-        FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
-        WHERE series_name IS NOT NULL AND ui.shelf='read'
-        GROUP BY series_name HAVING count(*) >= 2
+        WITH rated AS (SELECT work_key, rating FROM my_ratings WHERE rating IS NOT NULL),
+        read_items AS (
+            SELECT m.series_name, m.series_pos, COALESCE(m.work_key, m.id) work_key
+            FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
+            WHERE m.series_name IS NOT NULL AND ui.shelf='read'),
+        averages AS (
+            SELECT i.series_name, avg(r.rating) avg_rating
+            FROM (SELECT DISTINCT series_name, work_key FROM read_items) i JOIN rated r ON r.work_key=i.work_key
+            GROUP BY i.series_name)
+        SELECT i.series_name, count(*) read_count, min(i.series_pos) first_pos, max(i.series_pos) last_pos, a.avg_rating
+        FROM read_items i LEFT JOIN averages a ON a.series_name=i.series_name
+        GROUP BY i.series_name HAVING count(*) >= 2
         ORDER BY read_count DESC
     """).fetchall()
 
@@ -266,7 +270,7 @@ def render(conn) -> str:
 
     # ── Podcasts ──────────────────────────────────────────────────────────────
     podcasts = conn.execute("""
-        SELECT m.title, r.rating
+        SELECT m.title, r.rating, r.signal
         FROM media_items m JOIN user_interactions ui ON ui.media_id=m.id
         LEFT JOIN my_ratings r ON r.work_key = COALESCE(m.work_key, m.id)
         WHERE m.media_type='podcast' AND ui.interaction='completed'
@@ -1143,8 +1147,8 @@ def render(conn) -> str:
                 "Dolly Parton's America"}
     podcasts_html = ""
     for p in podcasts:
-        stars = format_rating(p["rating"])
-        tag = " · <span style='font-size:11px;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:.06em'>Huge fan</span>" if p["title"] in HUGE_FAN else ""
+        stars = p["signal"] if p["rating"] is None and p["signal"] else format_rating(p["rating"])
+        tag =" · <span style='font-size:11px;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:.06em'>Huge fan</span>" if p["title"] in HUGE_FAN else ""
         podcasts_html += (
             f'<div class="series-row" style="align-items:center">'
             f'<span class="series-name">{p["title"]}{tag}</span>'
