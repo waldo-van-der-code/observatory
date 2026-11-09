@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from api_search import _tmdb_key, search
 from db import get_conn, get_watchlist, get_or_create_item, init_db
+import app_ratings
 import oracle_actions
 import oracle_lookup
 import oracle_sessions
@@ -59,6 +60,7 @@ def _startup():
     with get_conn() as conn:
         init_db(conn)
         oracle_actions.init_table(conn)
+        app_ratings.backfill(conn)
         oracle_sessions.init_tables(conn)
     # Finish any Oracle changes still waiting for their security review (OBS-050)
     import asyncio
@@ -211,7 +213,7 @@ def api_rate(body: RatingIn):
         target, reason = oracle_actions.resolve(conn, action)
         if target is None:
             raise HTTPException(409, reason)
-        oracle_actions.apply(conn, action, target)
+        oracle_actions.apply(conn, action, target, origin="rate")
         conn.commit()
     except Exception:
         conn.rollback()
@@ -244,16 +246,7 @@ def api_interaction(body: InteractionIn):
                 (body.item_id, "watchlist", body.value, now),
             )
         else:
-            updated = conn.execute(
-                f"UPDATE user_interactions SET {oracle_actions.RERATE_SQL} WHERE media_id=? AND rating IS NOT NULL",
-                (rating, body.item_id),
-            )
-            if not updated.rowcount:
-                conn.execute(
-                    "INSERT INTO user_interactions (media_id, interaction, rating, date_added, date_completed, source) "
-                    "VALUES (?,?,?,?,?,?)",
-                    (body.item_id, "rated", rating, now, now, "manual"),
-                )
+            app_ratings.set_rating(conn, [body.item_id], rating, "interactions", insert_source="manual", completed=True)
         conn.commit()
     finally:
         conn.close()

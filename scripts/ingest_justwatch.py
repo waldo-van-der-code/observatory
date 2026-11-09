@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import app_ratings
 from db import get_conn, init_db
 
 RAW = Path(__file__).parent.parent / "data" / "raw"
@@ -113,6 +114,7 @@ def ingest_liked(conn) -> int:
                     (item_id, "rated", 4.5, "liked", "justwatch_liked"),
                 )
                 count += 1
+    app_ratings.reapply(conn)
     conn.commit()
     return count
 

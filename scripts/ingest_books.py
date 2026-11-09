@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import app_ratings
 from db import get_conn, init_db
 
 RAW = Path(__file__).parent.parent / "data" / "raw"
@@ -89,6 +90,7 @@ def ingest_goodreads(conn) -> tuple[int, int]:
                 (item_id, interaction, rating, date_read, date_add, shelf, "goodreads"),
             )
 
+    app_ratings.reapply(conn)
     conn.commit()
     return inserted, updated
 

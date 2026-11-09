@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import app_ratings
 from db import get_conn, init_db
 
 RAW = Path(__file__).parent.parent / "data" / "raw"
@@ -88,6 +89,7 @@ def ingest_ratings(conn) -> tuple[int, int]:
                 "(media_id, interaction, rating, date_completed, source) VALUES (?,?,?,?,?)",
                 (item_id, "rated", rating, date, "imdb"),
             )
+    app_ratings.reapply(conn)
     conn.commit()
     return inserted, updated
 

@@ -285,7 +285,7 @@ def ingest_series(conn, series_name: str, albums: list, genres: str) -> int:
             )
             inserted += 1
         # Mark as completed (owned & read)
-        conn.execute("DELETE FROM user_interactions WHERE media_id=? AND source='manual'", (item_id,))
+        conn.execute("DELETE FROM user_interactions WHERE media_id=? AND source='manual' AND rating IS NULL", (item_id,))
         conn.execute(
             "INSERT INTO user_interactions (media_id, interaction, shelf, source) VALUES (?,?,?,?)",
             (item_id, "completed", "read", "manual"),
@@ -306,7 +306,7 @@ def ingest_standalone(conn) -> int:
                 "VALUES (?,?,?,?,?,?,?)",
                 (item_id, "comic", title, author, year, genres, "manual"),
             )
-        conn.execute("DELETE FROM user_interactions WHERE media_id=? AND source='manual'", (item_id,))
+        conn.execute("DELETE FROM user_interactions WHERE media_id=? AND source='manual' AND rating IS NULL", (item_id,))
         conn.execute(
             "INSERT INTO user_interactions (media_id, interaction, shelf, source) VALUES (?,?,?,?)",
             (item_id, "completed", "read", "manual"),

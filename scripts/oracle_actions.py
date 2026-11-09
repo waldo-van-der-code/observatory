@@ -25,6 +25,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable
 
+import app_ratings
+from app_ratings import INFERRED_RATINGS, RERATE_SQL  # noqa: F401 (oracle_lookup and server read them here)
+
 ACTIONS = {"rate", "mark_seen", "remove_from_list"}
 MEDIA_GROUPS = {
     "film": ("film", "movie"),
@@ -40,12 +43,6 @@ STALE_CLAIM = timedelta(minutes=10)
 # Which source's row wins when one work exists in several imports (new rating / "seen" row)
 SOURCE_PRIORITY = ["imdb", "goodreads", "justwatch", "netflix", "tmdb", "openlibrary",
                    "googlebooks", "audible", "pocket_casts", "manual", "oracle"]
-# Numbers the importers made up for a like, a thumb or a subscription; Waldo never gave them (OBS-053).
-INFERRED_RATINGS = {("justwatch_liked", 4.5): "liked", ("netflix", 4.0): "thumbs up",
-                    ("netflix", 1.5): "thumbs down", ("pocket_casts", 3.0): "subscribed"}
-# A real rating replacing one of those must stop looking like it, so the row's source changes too.
-RERATE_SQL = "rating=?, source=CASE WHEN " + " OR ".join(
-    f"(source='{source}' AND rating={value})" for source, value in INFERRED_RATINGS) + " THEN 'oracle' ELSE source END"
 WATCHLIST_SQL = "(interaction IN ('want','watchlist') OR shelf IN ('to-watch','to-read'))"
 BLOCK_RE = re.compile(r"```observatory-actions\s*(.*?)```", re.S)
 
@@ -344,10 +341,11 @@ def _state(conn: sqlite3.Connection, ids: list[str], pick_ids: list[int]) -> dic
             f"SELECT * FROM user_interactions WHERE media_id IN ({_ph(ids)}) ORDER BY id", ids)] if ids else [],
         "picks": [dict(r) for r in conn.execute(
             f"SELECT id, status FROM recommendations WHERE id IN ({_ph(pick_ids)}) ORDER BY id", pick_ids)] if pick_ids else [],
+        "app_ratings": app_ratings.state(conn, ids),
     }
 
 
-def apply(conn: sqlite3.Connection, action: dict, target: dict) -> tuple[dict, dict]:
+def apply(conn: sqlite3.Connection, action: dict, target: dict, origin: str = "chat") -> tuple[dict, dict]:
     """Apply one approved action in the caller's transaction. Returns (before, after) snapshots."""
     ids = list(target["item_ids"])
     picks = list(target["pick_ids"])
@@ -362,12 +360,7 @@ def apply(conn: sqlite3.Connection, action: dict, target: dict) -> tuple[dict, d
     now = _now()
     primary = ids[0] if ids else None
     if action["action"] == "rate":
-        if any(r["rating"] is not None for r in before["interactions"]):
-            conn.execute(f"UPDATE user_interactions SET {RERATE_SQL} WHERE media_id IN ({_ph(ids)}) AND rating IS NOT NULL",
-                         [action["rating"], *ids])
-        else:
-            conn.execute("INSERT INTO user_interactions (media_id, interaction, rating, date_added, source) VALUES (?,?,?,?,?)",
-                         (primary, "rated", action["rating"], now, "oracle"))
+        app_ratings.set_rating(conn, ids, action["rating"], origin)
     else:
         if ids:
             conn.execute(f"DELETE FROM user_interactions WHERE media_id IN ({_ph(ids)}) AND {WATCHLIST_SQL}", ids)
@@ -399,9 +392,11 @@ def undo(conn: sqlite3.Connection, action_id: int) -> tuple[bool, str]:
             return False, "this title was changed again since; change it directly instead of undoing"
         if ids:
             conn.execute(f"DELETE FROM user_interactions WHERE media_id IN ({_ph(ids)})", ids)
-        for r in before["interactions"]:
-            cols = list(r)
-            conn.execute(f"INSERT INTO user_interactions ({','.join(cols)}) VALUES ({_ph(cols)})", [r[c] for c in cols])
+            conn.execute(f"DELETE FROM app_ratings WHERE media_id IN ({_ph(ids)})", ids)
+        for table, rows in (("user_interactions", before["interactions"]), ("app_ratings", before["app_ratings"])):
+            for r in rows:
+                cols = list(r)
+                conn.execute(f"INSERT INTO {table} ({','.join(cols)}) VALUES ({_ph(cols)})", [r[c] for c in cols])
         for p in before["picks"]:
             conn.execute("UPDATE recommendations SET status=? WHERE id=?", (p["status"], p["id"]))
         if before.get("created_item"):

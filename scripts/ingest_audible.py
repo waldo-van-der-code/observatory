@@ -79,7 +79,7 @@ def main():
 
     # Remove the old 4-book stub entries
     old_ids = [r["id"] for r in conn.execute(
-        "SELECT id FROM media_items WHERE source='audible'"
+        "SELECT id FROM media_items WHERE source='audible' AND id NOT IN (SELECT media_id FROM user_interactions WHERE rating IS NOT NULL)"
     ).fetchall()]
     for oid in old_ids:
         conn.execute("DELETE FROM user_interactions WHERE media_id=?", (oid,))

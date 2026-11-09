@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import app_ratings
 from db import get_conn, init_db
 
 RAW = Path(__file__).parent.parent / "data" / "raw"
@@ -142,6 +143,7 @@ def ingest_ratings(conn) -> int:
             )
             total += 1
 
+    app_ratings.reapply(conn)
     conn.commit()
     return total
 
