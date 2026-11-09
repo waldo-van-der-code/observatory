@@ -26,27 +26,43 @@ def _make_id(title: str, year: str) -> str:
     return f"jw:{slug}:{year}"
 
 
-def _find_existing(conn, title: str, year: str | None) -> str | None:
-    """Check if a film with this title+year is already in the DB from IMDb."""
-    year_i = int(year) if year and year.isdigit() else None
-    if year_i:
-        row = conn.execute(
-            "SELECT id FROM media_items WHERE lower(title)=lower(?) AND year=?",
-            (title, year_i),
-        ).fetchone()
-        if row:
-            return row["id"]
-    # fallback: title match only
-    row = conn.execute(
-        "SELECT id FROM media_items WHERE lower(title)=lower(?)", (title,)
-    ).fetchone()
-    return row["id"] if row else None
+def _find_existing(conn, title: str, year: str | None, mtype: str) -> str | None:
+    """Find the work this JustWatch row is about, or None to create a new item.
+
+    Only titles in the same type group qualify; a film never attaches to a show.
+    Prefer an IMDb row, then the lowest id, for a stable result.
+    """
+    year_i = int(year) if year and str(year).isdigit() else None
+    placeholders = ("film", "movie") if mtype == "film" else ("tv_show",)
+    cands = sorted(conn.execute(
+        "SELECT id, year, source FROM media_items WHERE lower(title)=lower(?) "
+        f"AND media_type IN ({','.join('?' * len(placeholders))})",
+        (title, *placeholders),
+    ).fetchall(), key=lambda r: (r["source"] != "imdb", r["id"]))
+    if not cands:
+        return None
+    if year_i is not None:
+        for c in cands:
+            if c["year"] == year_i:
+                return c["id"]
+        off_by_one = [c for c in cands if c["year"] is not None and abs(c["year"] - year_i) == 1]
+        if len(off_by_one) == 1:
+            return off_by_one[0]["id"]
+        # A yearless row is the same work only when nothing says otherwise.
+        if not any(c["year"] is not None for c in cands):
+            return cands[0]["id"]
+        return None
+    if len(cands) == 1:
+        return cands[0]["id"]
+    return None
 
 
 def ingest_seen(conn) -> int:
     if not SEEN_CSV.exists():
         print("justwatch_seen.csv not found — skipping")
         return 0
+    # Rebuild: any earlier justwatch_seen row (possibly attached to the wrong work) goes away.
+    conn.execute("DELETE FROM user_interactions WHERE source='justwatch_seen'")
     count = 0
     with open(SEEN_CSV, newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
@@ -55,7 +71,7 @@ def ingest_seen(conn) -> int:
             year  = row.get("year", "").strip()
             mtype = _media_type(row.get("type", "film"))
 
-            item_id = _find_existing(conn, orig, year) or _find_existing(conn, title, year)
+            item_id = _find_existing(conn, orig, year, mtype) or _find_existing(conn, title, year, mtype)
             if not item_id:
                 item_id = _make_id(orig, year)
                 year_i = int(year) if year.isdigit() else None
@@ -84,6 +100,9 @@ def ingest_liked(conn) -> int:
     if not LIKED_CSV.exists():
         print("justwatch_liked.csv not found — skipping")
         return 0
+    # Rebuild: any earlier justwatch_liked row (possibly attached to the wrong work) goes away.
+    # A row re-rated in the app has source 'oracle' and survives.
+    conn.execute("DELETE FROM user_interactions WHERE source='justwatch_liked'")
     count = 0
     with open(LIKED_CSV, newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
@@ -92,7 +111,7 @@ def ingest_liked(conn) -> int:
             year  = row.get("year", "").strip()
             mtype = _media_type(row.get("type", "film"))
 
-            item_id = _find_existing(conn, orig, year) or _find_existing(conn, title, year)
+            item_id = _find_existing(conn, orig, year, mtype) or _find_existing(conn, title, year, mtype)
             if not item_id:
                 item_id = _make_id(orig, year)
                 year_i = int(year) if year.isdigit() else None

@@ -53,23 +53,38 @@ def slug(title: str) -> str:
     return re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')
 
 
-def find_in_db(conn, title: str) -> str | None:
-    """Return media_items.id if title exists (case-insensitive), else None."""
+def _last_name(author: str) -> str:
+    """Last word of one author name, punctuation and case stripped."""
+    cleaned = re.sub(r"[^\w\s]", " ", author or "").strip()
+    return cleaned.split()[-1].lower() if cleaned else ""
+
+
+def _authors_agree(csv_author: str | None, db_author: str | None) -> bool:
+    """Same work if a last name matches; "A, B" means any author may match, a missing side always agrees."""
+    if not csv_author or not db_author:
+        return True
+    csv_names = {_last_name(part) for part in csv_author.split(",")}
+    db_names = {_last_name(part) for part in db_author.split(",")}
+    return bool(csv_names & db_names)
+
+
+def find_in_db(conn, title: str, author: str | None = None) -> str | None:
+    """Return media_items.id if this book is already in the DB (case-insensitive), else None."""
     row = conn.execute(
-        "SELECT id FROM media_items WHERE lower(title)=lower(?) AND media_type='book'",
+        "SELECT id, author FROM media_items WHERE lower(title)=lower(?) AND media_type='book'",
         (title.strip(),),
     ).fetchone()
-    if row:
+    if row and _authors_agree(author, row["author"]):
         return row["id"]
-    # Try without subtitle (everything after ':')
+    # Try without subtitle (everything after ':'); a prefix match needs a provided author on both sides.
     short = title.split(":")[0].strip()
     if short != title:
-        row = conn.execute(
-            "SELECT id FROM media_items WHERE lower(title) LIKE lower(?||'%') AND media_type='book'",
+        for row in conn.execute(
+            "SELECT id, author FROM media_items WHERE lower(title) LIKE lower(?||'%') AND media_type='book'",
             (short,),
-        ).fetchone()
-        if row:
-            return row["id"]
+        ).fetchall():
+            if row["author"] and author and _authors_agree(author, row["author"]):
+                return row["id"]
     return None
 
 
@@ -95,7 +110,7 @@ def main():
             if not title:
                 continue
 
-            existing_id = find_in_db(conn, title)
+            existing_id = find_in_db(conn, title, author)
             if existing_id:
                 # Already in DB from Goodreads — add audible tag if not already there
                 ex = conn.execute(

@@ -19,7 +19,7 @@ MEDIA_TYPE_MAP = {
     "TV Movie":      "film",
     "TV Series":     "tv_show",
     "TV Mini Series":"tv_show",
-    "TV Episode":    "tv_show",
+    "TV Episode":    "tv_episode",
     "Short":         "film",
     "Video":         "film",
 }
