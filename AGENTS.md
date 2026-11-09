@@ -46,6 +46,10 @@ Waldo can change his data from the Ask chat ("I've seen that, remove it from my 
 - HTML responses are `Cache-Control: no-cache`: without it Android Chrome kept running a days-old `/ask` that sent no history and drew no action cards, which looked like a dead queue.
 - Evals: `evals/test_oracle_sessions.py` (run by `deploy.sh`) and `evals/browser/oracle-sessions.spec.ts`, which writes data, so only against `evals/browser/oracle_local_server.py` with `OBS_ORACLE_LOCAL=1`. Do not use port 8011 locally: the Open Brain tunnel holds it.
 
+## Ratings scale (OBS-052)
+
+`user_interactions.rating` and the Oracle's action JSON stay on 0.5 to 5 in half steps; everything Waldo sees is out of ten (stored x 2, doubled before rounding averages). Widgets have ten positions and save position/2. Detail panel and search save through `POST /api/rate`, which uses `oracle_actions.resolve`/`apply` so all imports of a work stay in step and keep their source and date. To the Oracle, a bare number means out of ten and "N stars" means out of five. Eval: `evals/test_ratings_out_of_ten.py`.
+
 ## Git & deploy
 
 This directory is its own git repo (`main` branch → `waldo-van-der-code/observatory`).
