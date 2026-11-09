@@ -263,19 +263,22 @@ with tempfile.TemporaryDirectory(prefix="obs-054-eval-") as folder:
         conn.executemany("INSERT INTO media_items (id,media_type,title,year,source,source_id) VALUES (?,?,?,?,?,?)", [
             ("imdb:tt9", "film", "Changed Silently", 1999, "imdb", "tt9"), ("imdb:tt8", "film", "Same As Export", 1998, "imdb", "tt8"),
             ("pod:x", "podcast", "A Podcast", None, "manual", "x"), ("old:e", "tv_episode", "An Episode", 2000, "tmdb", "e"),
+            ("imdb:tt7", "film", "No Source Row", 1997, "imdb", "tt7"),
         ])
         conn.executemany("INSERT INTO user_interactions (media_id,interaction,rating,source) VALUES (?,?,?,?)", [
             ("imdb:tt9", "rated", 5.0, "imdb"), ("imdb:tt8", "rated", 2.0, "imdb"), ("pod:x", "completed", 4.0, "manual"),
-            ("old:e", "rated", 4.0, "tmdb"),
+            ("old:e", "rated", 4.0, "tmdb"), ("imdb:tt7", "rated", 5.0, None),
         ])
         conn.commit()
         write_csv(ingest_films.RATINGS_CSV, [imdb_row("tt1", "Heat", 7, 1995), imdb_row("tt2", "Control", 6, 2007), imdb_row("tt3", "New Film", 9, 2024),
-                                             imdb_row("tt9", "Changed Silently", 6, 1999), imdb_row("tt8", "Same As Export", 4, 1998)])
+                                             imdb_row("tt9", "Changed Silently", 6, 1999), imdb_row("tt8", "Same As Export", 4, 1998),
+                                             imdb_row("tt7", "No Source Row", 8, 1997)])
         found = {d["media_id"]: d for d in app_ratings.differences(conn, ingest_films.RATINGS_CSV, ingest_books.GOODREADS_CSV)} if app_ratings else {}
         check("a silent change is listed", found.get("imdb:tt9", {}).get("export") == 3.0, found.get("imdb:tt9"))
         check("a value matching the export is not listed", "imdb:tt8" not in found, found.get("imdb:tt8"))
         check("a rating no export knows is listed", found.get("pod:x", {}).get("export") is None and "pod:x" in found, found.get("pod:x"))
         check("episode rows are not listed", "old:e" not in found)
+        check("a sourceless rating is compared with the export for its id", found.get("imdb:tt7", {}).get("export") == 4.0, found.get("imdb:tt7"))
         check("a rating already recorded in app_ratings is not listed", "imdb:tt1" not in found, found.get("imdb:tt1"))
 
         if app_ratings:

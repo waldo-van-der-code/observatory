@@ -163,6 +163,17 @@ with tempfile.TemporaryDirectory(prefix="obs-054-eval-") as folder:
     check("prefix title with the author missing is refused", find("The Will of Many: Part One", None) is None,
           find("The Will of Many: Part One", None))
 
+    # Regression OBS-054: a missing Audible CSV must not delete the books already imported
+    conn.execute("INSERT INTO media_items (id, media_type, title, source, source_id) VALUES ('au:kept', 'book', 'Kept Book', 'audible', 'kept')")
+    conn.execute("INSERT INTO user_interactions (media_id, interaction, source) VALUES ('au:kept', 'completed', 'audible')")
+    conn.commit()
+    try:
+        ingest_audible.main()
+    except FileNotFoundError:
+        pass
+    check("a missing Audible CSV keeps existing Audible books",
+          conn.execute("SELECT 1 FROM media_items WHERE id='au:kept'").fetchone() is not None)
+
     conn.close()
 
 print(f"\n{checks - failures}/{checks} passed")

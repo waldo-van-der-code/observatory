@@ -155,7 +155,7 @@ def differences(conn: sqlite3.Connection, imdb_csv: Path, goodreads_csv: Path) -
             ORDER BY m.title"""):
         if (r["source"], r["rating"]) in INFERRED_RATINGS:
             continue
-        export = exports.get(r["media_id"]) if r["source"] in ("imdb", "goodreads") else None
+        export = exports.get(r["media_id"])
         if export != r["rating"]:
             out.append({**dict(r), "export": export})
     return out
@@ -185,8 +185,12 @@ def main() -> None:
         adopt(conn, sys.argv[2:])
         conn.commit()
         print(f"adopted {len(sys.argv) - 2}")
+    elif command == "set" and len(sys.argv) == 4:
+        set_rating(conn, [sys.argv[2]], float(sys.argv[3]), "adopted")
+        conn.commit()
+        print(f"set {sys.argv[2]} to {sys.argv[3]}")
     else:
-        sys.exit("usage: app_ratings.py differences | adopt <media_id> ...")
+        sys.exit("usage: app_ratings.py differences | adopt <media_id> ... | set <media_id> <0.5 to 5>")
 
 
 if __name__ == "__main__":

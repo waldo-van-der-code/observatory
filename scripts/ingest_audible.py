@@ -89,6 +89,10 @@ def find_in_db(conn, title: str, author: str | None = None) -> str | None:
 
 
 def main():
+    if not AUDIBLE_CSV.exists():
+        print("audible_finished.csv not found, skipping")
+        return
+
     conn = get_conn()
     init_db(conn)
 
