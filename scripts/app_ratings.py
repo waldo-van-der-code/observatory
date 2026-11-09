@@ -111,7 +111,7 @@ def backfill(conn: sqlite3.Connection) -> int:
     added = 0
     try:
         for row in conn.execute("SELECT id, action, updated_at, before_state, after_state FROM oracle_actions "
-                                "WHERE status='applied' ORDER BY id").fetchall():
+                                "WHERE status='applied' AND before_state IS NOT NULL AND after_state IS NOT NULL ORDER BY id").fetchall():
             before, after = json.loads(row["before_state"]), json.loads(row["after_state"])
             if "app_ratings" in after:
                 continue

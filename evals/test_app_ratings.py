@@ -237,6 +237,17 @@ with tempfile.TemporaryDirectory(prefix="obs-054-eval-") as folder:
         check("backfill counted one rating", added == 1, added)
         check("backfill is idempotent", app_ratings is not None and app_ratings.backfill(conn) == 0)
 
+        # Regression OBS-054: one applied row without snapshots must not stop the server from starting
+        conn.execute("INSERT INTO oracle_actions (created_at, updated_at, user_message, action, target, status) VALUES (?,?,?,?,?,?)",
+                     ("2026-11-05T08:00:00Z", "2026-11-05T08:00:00Z", "x", json.dumps({"action": "rate", "rating": 3.0}), "{}", "applied"))
+        conn.commit()
+        try:
+            crashed = None
+            app_ratings.backfill(conn)
+        except Exception as e:
+            crashed = repr(e)
+        check("backfill survives an applied row without snapshots", crashed is None, crashed)
+
         # Undo still works on an action from before the new table existed
         for column in ("before_state", "after_state"):
             snapshot = json.loads(conn.execute(f"SELECT {column} FROM oracle_actions WHERE id=?", (old_a,)).fetchone()[0])
