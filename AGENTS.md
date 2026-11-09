@@ -35,8 +35,16 @@ Waldo can change his data from the Ask chat ("I've seen that, remove it from my 
 - The server resolves titles itself (all imports of the same work; unknown-year rows and picks only when no remake/other year exists). Unknown titles for `rate`/`mark_seen` get a new `media_items` row with `source='oracle'`.
 - A separate Sonnet call (no tools, data in one escaped JSON block) must return `{"verdict":"approve"}`; anything else is a reject. If the target changed during review it is rejected. Review failures retry on the next question, then fail after 3 tries.
 - Undo restores the before-snapshot, and is refused once the rows were changed again afterwards.
-- The chat now sends the last 4 turns (`history`) so "that"/"it" resolve.
 - Eval: `evals/test_oracle_actions.py` (offline, fake CLI, temp DB via `OBS_DB_PATH`), run by `deploy.sh`.
+
+## Oracle sessions (OBS-051)
+
+- Conversations are server-side: `oracle_sessions` plus `oracle_conversations.session_id` (`scripts/oracle_sessions.py`). `/api/ask` takes `{question, session_id?}` and reads the last 4 turns from the DB. The client's old `history` field is accepted and ignored.
+- Each prompt carries a data block with what happened to this session's proposed changes (`oracle_actions.session_summary`), so the Oracle can truthfully say what was saved.
+- Titles: a Haiku background call names a new session; a rename sets `title_source='user'` and is never overwritten.
+- "Save anyway" (`POST /api/oracle/actions/{id}/confirm`) is Waldo's own click, limited to `security review:` rejections with a resolved target. Undo works as usual.
+- HTML responses are `Cache-Control: no-cache`: without it Android Chrome kept running a days-old `/ask` that sent no history and drew no action cards, which looked like a dead queue.
+- Evals: `evals/test_oracle_sessions.py` (run by `deploy.sh`) and `evals/browser/oracle-sessions.spec.ts`, which writes data, so only against `evals/browser/oracle_local_server.py` with `OBS_ORACLE_LOCAL=1`. Do not use port 8011 locally: the Open Brain tunnel holds it.
 
 ## Git & deploy
 
