@@ -59,6 +59,7 @@ def _record(conn: sqlite3.Connection, media_id: str, rating: float, rated_at: st
 def set_rating(conn: sqlite3.Connection, ids: list[str], rating: float, origin: str,
                insert_source: str = "oracle", completed: bool = False) -> None:
     """The one rating write, in the caller's transaction. ids are all imports of one work."""
+    import my_ratings
     init_table(conn)
     now = _now()
     rated = [r[0] for r in conn.execute(
@@ -71,6 +72,7 @@ def set_rating(conn: sqlite3.Connection, ids: list[str], rating: float, origin: 
                      "VALUES (?,?,?,?,?,?)", (ids[0], "rated", rating, now, now if completed else None, insert_source))
     for media_id in rated or ids[:1]:
         _record(conn, media_id, rating, now, origin)
+    my_ratings.assign_work_keys(conn)
 
 
 def reapply(conn: sqlite3.Connection) -> int:
@@ -96,6 +98,8 @@ def reapply(conn: sqlite3.Connection) -> int:
                         (SELECT min(id) FROM user_interactions WHERE media_id=? AND rating IS NOT NULL GROUP BY source)""",
                      (media_id, media_id))
         corrected += 1
+    import my_ratings
+    my_ratings.assign_work_keys(conn)
     return corrected
 
 

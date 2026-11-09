@@ -32,6 +32,8 @@ echo "→ Running offline evals..."
   || { echo "ERROR: evals/test_app_ratings.py failed, run it to see why." >&2; exit 1; }
 "${OBS_PYTHON:-$HOME/Library/Scripts/entertainment-env/bin/python}" evals/test_importers.py > /dev/null 2>&1 \
   || { echo "ERROR: evals/test_importers.py failed, run it to see why." >&2; exit 1; }
+"${OBS_PYTHON:-$HOME/Library/Scripts/entertainment-env/bin/python}" evals/test_my_ratings.py > /dev/null 2>&1 \
+  || { echo "ERROR: evals/test_my_ratings.py failed, run it to see why." >&2; exit 1; }
 
 # ── 2. Push ────────────────────────────────────────────────────────────────────
 echo "→ Pushing to GitHub..."

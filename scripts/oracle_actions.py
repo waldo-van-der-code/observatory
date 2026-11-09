@@ -20,13 +20,13 @@ import hashlib
 import json
 import re
 import sqlite3
-import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable
 
 import app_ratings
 from app_ratings import INFERRED_RATINGS, RERATE_SQL  # noqa: F401 (oracle_lookup and server read them here)
+from db import norm  # noqa: F401 (oracle_lookup and my_ratings read it from here or from db)
 
 ACTIONS = {"rate", "mark_seen", "remove_from_list"}
 MEDIA_GROUPS = {
@@ -52,13 +52,6 @@ _lock = asyncio.Lock()
 
 def _now(delta: timedelta = timedelta()) -> str:
     return (datetime.now(timezone.utc) + delta).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def norm(s: str) -> str:
-    """Case- and punctuation-insensitive key that keeps every script's letters (CJK, Cyrillic...)."""
-    s = unicodedata.normalize("NFKC", s or "").casefold()
-    s = "".join(" " if unicodedata.category(ch)[0] in "PSZC" else ch for ch in s)
-    return " ".join(s.split())
 
 
 def _ph(seq) -> str:

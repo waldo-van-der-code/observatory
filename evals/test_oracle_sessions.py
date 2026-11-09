@@ -198,7 +198,7 @@ with TestClient(server.app) as client:
     def data_state():
         with get_conn() as conn:
             return ([tuple(r) for r in conn.execute("SELECT * FROM user_interactions ORDER BY id")],
-                    [tuple(r) for r in conn.execute("SELECT * FROM media_items ORDER BY id")])
+                    [tuple(r) for r in conn.execute("SELECT id, media_type, title, year, source, source_id FROM media_items ORDER BY id")])  # work_key is derived, not data
     before = data_state()
     check("review-rejected action is confirmable", get_action(aid)["confirmable"] is True)
     confirmed = client.post(f"/api/oracle/actions/{aid}/confirm")

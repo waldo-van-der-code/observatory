@@ -4,9 +4,17 @@
 import json
 import os
 import sqlite3
+import unicodedata
 from pathlib import Path
 
 DB_PATH = Path(os.environ.get("OBS_DB_PATH") or Path(__file__).parent.parent / "data" / "processed" / "entertainment.db")
+
+
+def norm(s: str) -> str:
+    """Case- and punctuation-insensitive key that keeps every script's letters (CJK, Cyrillic...)."""
+    s = unicodedata.normalize("NFKC", s or "").casefold()
+    s = "".join(" " if unicodedata.category(ch)[0] in "PSZC" else ch for ch in s)
+    return " ".join(s.split())
 
 
 def get_conn() -> sqlite3.Connection:
