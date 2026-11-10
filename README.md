@@ -52,7 +52,7 @@ Observatory ingests exports you download yourself from the original services:
 | **Spotify** | Extended streaming history (JSON) | Account → Privacy → Request data → Extended streaming history |
 | **Goodreads** | Library export (CSV) | Account → Import/Export |
 | **IMDB** | Ratings export (CSV) | Your ratings → … → Export |
-| **Netflix** | Viewing activity (CSV) | Account → Privacy → Download your data |
+| **Netflix** | Viewing activity (CSV) | [netflix.com/account/getmyinfo](https://www.netflix.com/account/getmyinfo) |
 | **JustWatch** | Liked / seen lists (CSV) | Profile → Export (seen list + liked list) |
 | **Audible** | Purchase/history JSON | Manual export or `audible_extra.json` |
 | **TikTok** | Full account data (JSON) | See below |
