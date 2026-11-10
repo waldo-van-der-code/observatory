@@ -17,11 +17,13 @@ RATINGS_CSV = RAW / "netflix_ratings.csv"
 PROFILE = "wally"
 MIN_DURATION_S = 300  # skip watches shorter than 5 min (trailers/clips)
 
-# Title: Season/Part/etc N: Episode → standard Netflix TV format
+# Title: Season/Part/etc N: Episode → standard Netflix TV format; newer exports can drop the word ("Title:  1: Episode")
 _TV_SEASON = re.compile(
-    r"^(.+?):\s*(?:Season|Part|Book|Volume|Series|Collection|Limited Series|Mini[ -]Series)\s*\d*:",
+    r"^(.+?):\s*(?:(?:Season|Part|Book|Volume|Series|Collection|Limited Series|Mini[ -]Series)\s*\d*|\d+):",
     re.IGNORECASE,
 )
+# Title: Title 2: Episode → the season is named after the show, and the title itself may hold a colon
+_TV_REPEATED = re.compile(r"^(.+?):\s*\1\b[^:]*:")
 # Title: Arc/anything: Episode N (Episode M) → anime / non-standard arcs
 _TV_EPISODE = re.compile(r"^(.+?):.+?\(Episode\s+[\d.]+\)$", re.IGNORECASE)
 
@@ -35,7 +37,7 @@ def parse_duration(s: str) -> int:
 
 def extract_show_or_movie(title: str) -> tuple[str, str]:
     """Return (clean_title, media_type)."""
-    m = _TV_SEASON.match(title)
+    m = _TV_SEASON.match(title) or _TV_REPEATED.match(title)
     if m:
         return m.group(1).strip(), "tv_show"
     m = _TV_EPISODE.match(title)

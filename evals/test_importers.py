@@ -222,5 +222,20 @@ with tempfile.TemporaryDirectory(prefix="obs-054-eval-") as folder:
 
     conn.close()
 
+# Regression OBS-056: the 2026-11 Netflix export drops the word "Season", which split a show with a colon in its name
+import ingest_netflix
+
+for raw, expected in [
+    ("Cyberpunk: Edgerunners:  1: My Moon My Man (Episode 10)", ("Cyberpunk: Edgerunners", "tv_show")),
+    ("Cyberpunk: Edgerunners: Season 1: My Moon My Man (Episode 10)", ("Cyberpunk: Edgerunners", "tv_show")),
+    ("Cyberpunk: Edgerunners: Cyberpunk: Edgerunners 2: 0+2=1 (Episode 3)", ("Cyberpunk: Edgerunners", "tv_show")),
+    ("Sword Art Online:  1: The World of Swords (Episode 1)", ("Sword Art Online", "tv_show")),
+    ("Our Planet:  1: One Planet", ("Our Planet", "tv_show")),
+    ("Blade Runner 2049", ("Blade Runner 2049", "film")),
+    ("Mission: Impossible", ("Mission: Impossible", "film")),
+]:
+    got = ingest_netflix.extract_show_or_movie(raw)
+    check(f"Netflix title parses: {raw}", got == expected, f"got {got}")
+
 print(f"\n{checks - failures}/{checks} passed")
 sys.exit(1 if failures else 0)
