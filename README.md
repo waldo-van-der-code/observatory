@@ -136,7 +136,7 @@ enrichment manageable and focuses on the high-signal content.
 
 - Python 3.10+
 - [TMDB API key](https://www.themoviedb.org/settings/api) (free) — for film/TV search and details
-- [Anthropic API key](https://console.anthropic.com/) — for the AI taste profile and recommendations (one-time build step)
+- [Claude Code](https://claude.com/claude-code) logged in with a subscription, for the AI taste profile and recommendations
 
 ---
 
@@ -154,8 +154,6 @@ Store your API keys:
 ```bash
 mkdir -p ~/.config/tmdb
 echo "YOUR_TMDB_KEY" > ~/.config/tmdb/api_key
-
-export ANTHROPIC_API_KEY=sk-ant-...  # or add to .env
 ```
 
 Add your data exports to `data/raw/`, then run the pipeline:
@@ -169,8 +167,9 @@ python3 scripts/ingest_justwatch.py              # JustWatch seen/liked CSVs
 python3 scripts/ingest_spotify.py                # Spotify extended history JSON(s)
 python3 scripts/ingest_audible.py                # Audible JSON (optional)
 
-# Build AI taste profile (calls Anthropic API — runs once, result cached)
-python3 scripts/build_profile.py
+# Measure your taste and draft the profile and picks (claude CLI), read the draft, then publish it
+python3 scripts/build_profile.py --draft
+python3 scripts/build_profile.py --publish
 
 # Generate the dashboard HTML
 python3 scripts/build_dashboard.py

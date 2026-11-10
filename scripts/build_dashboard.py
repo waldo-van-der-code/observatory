@@ -29,15 +29,16 @@ def load_dismissed() -> set[int]:
 
 
 def svg_bar_chart(data: dict[str, float], color: str = "#1a4fa0",
-                  bar_h: int = 20, gap: int = 6, onclick: str = "") -> str:
+                  bar_h: int = 20, gap: int = 6, onclick: str = "",
+                  labels: dict[str, str] | None = None) -> str:
     if not data:
         return "<p class='dim'>No data yet.</p>"
     items = sorted(data.items(), key=lambda x: x[1], reverse=True)[:12]
     max_val = max(v for _, v in items) or 1
     rows = []
     for label, val in items:
-        pct_width = round(val / max_val * 100, 1)
-        pct = f"{val:.0%}" if val <= 1 else f"{val:.1f}"
+        pct_width = round(val * 100, 1) if labels else round(val / max_val * 100, 1)
+        pct = labels.get(label, "") if labels else f"{val:.0%}" if val <= 1 else f"{val:.1f}"
         safe = label.replace("'", "\\'")
         click_attr = f' onclick="{onclick.format(safe=safe)}" style="cursor:pointer"' if onclick else ""
         rows.append(
@@ -643,8 +644,18 @@ def render(conn) -> str:
     directors_by_count_html  = "".join(_dir_row(d) for d in top_directors_by_count)
 
     # ── Genre chart ───────────────────────────────────────────────────────────
-    genre_chart = svg_bar_chart(profile.get("genre_fingerprint", {}), color="#1a4fa0")
-    film_genre_chart = svg_bar_chart(profile.get("film_genre_fingerprint", {}), color="#c94c1a")
+    measured = json.loads(profile_row["raw_response"] or "{}").get("measured", {}) if profile_row else {}
+
+    def _genre_chart(fingerprint: dict, rows_key: str, color: str) -> str:
+        """A measured profile shows points against his own average; an older one its percentages."""
+        if not measured:
+            return svg_bar_chart(fingerprint, color=color)
+        points = {r["name"]: f'{r["vs_own"]:+.1f}' for r in measured.get(rows_key, [])}
+        return ('<div class="dim" style="font-size:12px;margin-bottom:8px">Points above or below your own average, out of ten</div>'
+                + svg_bar_chart(fingerprint, color=color, labels=points))
+
+    genre_chart = _genre_chart(profile.get("genre_fingerprint", {}), "book_genres_labelled_by_model", "#1a4fa0")
+    film_genre_chart = _genre_chart(profile.get("film_genre_fingerprint", {}), "screen_genres", "#c94c1a")
     rating_hist = svg_rating_histogram(book_ratings)
     film_rating_hist = svg_rating_histogram(film_ratings, color="#c94c1a")
 

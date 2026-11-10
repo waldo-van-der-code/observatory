@@ -64,6 +64,10 @@ View `my_ratings` (`scripts/my_ratings.py`) gives one row per work, and the Dash
 `media_items.work_key` joins the imports of one work on media type, normalised title and year. A row with no year joins only when exactly one year is known for that title. Books and comics with the same title but different authors get an author mark in the key. Episodes have no key. Keys are derived, so undo snapshots leave them out.
 `init` replaces the view only when its SQL changed, and in one transaction, because readers must never find it missing. It runs at server startup and in `build_dashboard.py`. `build_brain.py` runs per Taste Map request and only installs it when the view does not exist. `reapply(conn, "imdb")` names the export that was just read: only those rows can end a recorded difference. Eval: `evals/test_my_ratings.py`.
 
+## Measured taste and picks (OBS-054)
+
+`scripts/build_profile.py --draft` measures taste from `my_ratings` (genre, director, author and decade scores against his own average, sample counts, last 12 months) and has Sonnet write the portrait and picks; `--show` prints the draft and `--publish` applies it and rebuilds the dashboard. Numbers on the page always come from the measurement; the model only supplies the words, the clusters (only titles he rated or liked survive) and book genre labels, because only 4 books have genres in the data. Publishing is one transaction: picks keep their id when the work is the same, seen and dismissed works never return, and an unusable generation changes nothing. A day with 10 or more ratings from one source is an import or clean-up, so it does not count as recent. Finished against abandoned shows waits for the new Netflix export. Eval: `evals/test_build_profile.py`.
+
 ## Ratings scale (OBS-052)
 
 `user_interactions.rating` and the Oracle's action JSON stay on 0.5 to 5 in half steps; everything Waldo sees is out of ten (stored x 2, doubled before rounding averages). Widgets have ten positions and save position/2. Detail panel and search save through `POST /api/rate`, which uses `oracle_actions.resolve`/`apply` so all imports of a work stay in step and keep their source and date. To the Oracle, a bare number means out of ten and "N stars" means out of five. Eval: `evals/test_ratings_out_of_ten.py`.
@@ -103,7 +107,7 @@ DB: `data/processed/entertainment.db` (SQLite, gitignored)
 | `static/favicon.ico` | 16×16 gold ✶ on navy, PNG-in-ICO format |
 | `scripts/deploy.sh` | One-command deploy with health-check + auto-rollback |
 | `scripts/ingest_*.py` | One script per data source — idempotent, safe to re-run |
-| `scripts/build_profile.py` | Builds taste profile JSON via Claude API |
+| `scripts/build_profile.py` | Measures taste, drafts portrait and picks through the `claude` CLI, publishes them together |
 | `scripts/build_dashboard.py` | Renders taste profile + ingested data → `dashboard.html` |
 | `scripts/build_brain.py` | Builds taste zone graph + item labels for Brain page |
 | `config/exemplars.json` | Taste zone → exemplar artists/directors (editable) |
@@ -140,17 +144,11 @@ Generate with: `python3 scripts/gen_map_prompts.py` then follow the prompts.md i
 
 ## AI token policy
 
-**Never call the Anthropic API from scripts directly.** Use the Claude Code session instead:
-1. Export rated history → `/tmp/ent_signal.json`
-2. Read data in the session
-3. Generate profile + recs as structured Python dicts
-4. Write to DB with inline Python (no SDK needed)
-5. Run `python3 scripts/build_dashboard.py` to render
+**Never call the Anthropic API from scripts.** Claude is reached only through the `claude` CLI on the subscription (`scripts/claude_cli.py`, which never passes an API key).
 
 ## API keys
 
 - TMDB: `~/.config/tmdb/api_key` (free — for film/TV search)
-- Anthropic: `ANTHROPIC_API_KEY` env var (for taste profile build)
 
 ## What's gitignored
 

@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from api_search import _tmdb_key, search
 from db import get_conn, get_watchlist, get_or_create_item, init_db
 import app_ratings
+import claude_cli
 import my_ratings
 import oracle_actions
 import oracle_lookup
@@ -1033,27 +1034,10 @@ def api_recs_update(rec_id: int, body: RecStatusIn):
 
 # ── Claude CLI (shared by Ask Oracle + its health probe) ──────────────────────
 
-# Long-lived token from `claude setup-token` (1 year). Without it the CLI falls back to the
-# interactive OAuth login in ~/.claude, which expired on oracle and broke the Oracle (OBS-048).
-CLAUDE_TOKEN_FILE = Path(os.environ.get("OBS_CLAUDE_TOKEN_FILE", Path.home() / ".secrets" / "claude-code-oauth-token"))
+CLAUDE_TOKEN_FILE = claude_cli.TOKEN_FILE
 CLAUDE_TOKEN_MAX_AGE_DAYS = 335  # warn a month before the 1-year token runs out
 ORACLE_HEALTH_TTL = 1800         # cache a successful probe for 30 min; failures always re-probe
 _oracle_health_ok_at = 0.0
-
-
-def _claude_cli() -> str | None:
-    import shutil
-    cli = os.environ.get("OBS_CLAUDE_CLI") or shutil.which("claude") or "/home/ubuntu/.nvm/versions/node/v22.23.2/bin/claude"
-    return cli if os.path.isfile(cli) else None
-
-
-def _claude_env() -> dict:
-    env = dict(os.environ)
-    if CLAUDE_TOKEN_FILE.is_file():
-        token = CLAUDE_TOKEN_FILE.read_text().strip()
-        if token:
-            env["CLAUDE_CODE_OAUTH_TOKEN"] = token
-    return env
 
 
 def _claude_error_detail(rc: int, stdout: bytes, stderr: bytes) -> str:
@@ -1069,14 +1053,10 @@ async def _run_claude(prompt: str, system: str, model: str, timeout: float) -> t
     """Run the Claude CLI isolated from local settings/tools. Raises HTTPException on missing CLI or timeout."""
     import asyncio, tempfile
 
-    cli = _claude_cli()
+    cli = claude_cli.find()
     if not cli:
         raise HTTPException(503, "claude CLI not found — is Claude Code installed on this server?")
-    isolation_flags = [
-        "--tools", "", "--strict-mcp-config", "--setting-sources", "local",
-        "--disable-slash-commands", "--no-session-persistence",
-    ]
-    command = [cli, "-p", "--model", model, "--system-prompt", system, *isolation_flags]
+    command = [cli, "-p", "--model", model, "--system-prompt", system, *claude_cli.ISOLATION_FLAGS]
 
     with tempfile.TemporaryDirectory(prefix="observatory-oracle-") as tmpdir:
         proc = await asyncio.create_subprocess_exec(
@@ -1085,7 +1065,7 @@ async def _run_claude(prompt: str, system: str, model: str, timeout: float) -> t
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=tmpdir,
-            env=_claude_env(),
+            env=claude_cli.env(),
         )
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(input=prompt.encode()), timeout=timeout)

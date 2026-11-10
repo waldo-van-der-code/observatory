@@ -2,7 +2,7 @@
 # Full pipeline: ingest → profile (if --refresh) → dashboard → server
 # Usage: ./run.sh [--refresh] [--serve]
 #   --serve   start the FastAPI server on port 8000
-#   --refresh rebuild the AI taste profile (requires ANTHROPIC_API_KEY)
+#   --refresh draft a new taste profile and picks through the claude CLI (nothing is published)
 set -e
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -51,8 +51,8 @@ ls "$DIR"/data/raw/spotify_streaming_audio_*.json &>/dev/null && {
 }
 
 if [[ "$1" == "--refresh" ]]; then
-  echo "→ Building AI taste profile (requires ANTHROPIC_API_KEY)…"
-  "$PYTHON" "$DIR/scripts/build_profile.py" --refresh
+  echo "→ Drafting the taste profile and picks (claude CLI, nothing is published)…"
+  "$PYTHON" "$DIR/scripts/build_profile.py" --draft
 fi
 
 echo "→ Building dashboard…"
