@@ -220,6 +220,63 @@ with tempfile.TemporaryDirectory(prefix="obs-054-eval-") as folder:
     check("the chat added seen row itself survives",
           conn.execute("SELECT 1 FROM user_interactions WHERE media_id='au:chatted' AND source='oracle'").fetchone() is not None)
 
+    # Regression OBS-057: One Piece anime and live action are two works; Netflix's thumb value 2 counts as a like
+    import ingest_netflix as netflix
+
+    netflix.VIEWING_CSV, netflix.RATINGS_CSV = tmp / "viewing.csv", tmp / "ratings.csv"
+    conn.execute("INSERT INTO media_items (id, media_type, title, source, source_id) VALUES "
+                 "('netflix:one-piece', 'tv_show', 'ONE PIECE', 'netflix', 'netflix:one-piece')")
+    conn.commit()
+
+    def play(title, start):
+        return {"Duration": "00:24:00", "Start Time": start, "Profile Name": "wally",
+                "Supplemental Video Type": "", "Title": title}
+
+    def thumb(title, value):
+        return {"Profile Name": "wally", "Title Name": title, "Thumbs Value": value, "Event Utc Ts": "2024-01-02 10:00:00"}
+
+    write_csv(netflix.VIEWING_CSV, [
+        play("ONE PIECE: Season 1: WORST IN THE EAST (Episode 8)", "2025-09-17 19:52:25"),
+        play("One Piece: Egghead Arc ①: Episode 1097 (Episode 1.097)", "2025-09-05 20:00:00"),
+        {**play("Short Show: Season 1: Pilot (Episode 1)", "2020-01-01 20:00:00"), "Duration": "00:02:00"},
+    ])
+    conn.execute("INSERT INTO media_items (id, media_type, title, year, source, source_id) VALUES "
+                 "('imdb:known', 'tv_show', 'Known Show', 2014, 'imdb', 'known')")
+    write_csv(netflix.RATINGS_CSV, [thumb("Plain Thumb", "2"), thumb("Double Thumb", "3"), thumb("Thumb Down", "1"),
+                                    thumb("Short Show", "2"), thumb("Known Show", "2")])
+    netflix.ingest_viewing(conn)
+    netflix.ingest_ratings(conn)
+
+    def seen_date(media_id):
+        row = conn.execute("SELECT date_completed FROM user_interactions WHERE media_id=? AND interaction='completed'",
+                           (media_id,)).fetchone()
+        return row[0] if row else None
+
+    def year_of(media_id):
+        row = conn.execute("SELECT year FROM media_items WHERE id=?", (media_id,)).fetchone()
+        return row[0] if row else None
+
+    def thumb_rating(title):
+        row = conn.execute("SELECT rating FROM user_interactions WHERE media_id=? AND interaction='rated'",
+                           (netflix.make_id(title),)).fetchone()
+        return row[0] if row else None
+
+    check("One Piece live action keeps its own last play", seen_date("netflix:one-piece") == "2025-09-17",
+          seen_date("netflix:one-piece"))
+    check("One Piece anime has its own Netflix row", seen_date("netflix:one-piece-anime") == "2025-09-05",
+          seen_date("netflix:one-piece-anime"))
+    check("an existing live action row gets the year 2023", year_of("netflix:one-piece") == 2023, year_of("netflix:one-piece"))
+    check("the anime row gets the year 1999", year_of("netflix:one-piece-anime") == 1999, year_of("netflix:one-piece-anime"))
+    check("thumb value 2 counts as a like", thumb_rating("Plain Thumb") == 4.0, thumb_rating("Plain Thumb"))
+    check("thumb value 3 still counts as a like", thumb_rating("Double Thumb") == 4.0, thumb_rating("Double Thumb"))
+    check("thumb value 1 still counts as a dislike", thumb_rating("Thumb Down") == 1.5, thumb_rating("Thumb Down"))
+    check("a thumbed show with only short plays stays a show", media_type(conn, "netflix:short-show") == "tv_show",
+          media_type(conn, "netflix:short-show"))
+    check("a thumbed title known as a show stays a show", media_type(conn, "netflix:known-show") == "tv_show",
+          media_type(conn, "netflix:known-show"))
+    check("a thumbed title with no other evidence is a film", media_type(conn, "netflix:plain-thumb") == "film",
+          media_type(conn, "netflix:plain-thumb"))
+
     conn.close()
 
 # Regression OBS-056: the 2026-11 Netflix export drops the word "Season", which split a show with a colon in its name
