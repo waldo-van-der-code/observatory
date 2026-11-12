@@ -37,6 +37,12 @@ Waldo can change his data from the Ask chat ("I've seen that, remove it from my 
 - Undo restores the before-snapshot, and is refused once the rows were changed again afterwards.
 - Eval: `evals/test_oracle_actions.py` (offline, fake CLI, temp DB via `OBS_DB_PATH`), run by `deploy.sh`.
 
+### `add_to_list` (ME-397)
+Fourth whitelisted action: "add Schild's Ladder to my reading list". Film and tv_show go on shelf `to-watch`, book and comic on `to-read`; podcast and music are rejected. Same safety path as the others (quote check, max 5, server-side resolve, Sonnet review, identity recheck, undo). A work already on any list through any import is rejected as a duplicate.
+- The row (`interaction='watchlist'`, `source='oracle'`) goes on the top-priority item of the work (e.g. the imdb id), so `db.get_watchlist` no longer filters by source: search-added rows (tmdb/openlibrary/googlebooks) always show, any other source shows once per `COALESCE(work_key, id)` and never next to a search row of the same work. Do not narrow that filter again, or Oracle-added imports vanish from `/api/watchlist` and the search watchlist state.
+- Unknown books/comics get a `source='oracle'` row filled by `oracle_actions.lookup_book` (reuses `api_search._search_openlibrary`, exact title match only, runs before the write lock); a failed lookup leaves a bare row. Films/series unknown to the DB get a bare row.
+- Eval `evals/test_oracle_actions.py` A1-A7 checks visibility through `get_watchlist`, `/api/watchlist` and `_get_user_state`, not just row counts.
+
 ## Oracle sessions (OBS-051)
 
 - Conversations are server-side: `oracle_sessions` plus `oracle_conversations.session_id` (`scripts/oracle_sessions.py`). `/api/ask` takes `{question, session_id?}` and reads the last 4 turns from the DB. The client's old `history` field is accepted and ignored.

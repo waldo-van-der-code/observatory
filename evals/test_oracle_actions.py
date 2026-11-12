@@ -336,5 +336,94 @@ with TestClient(server.app) as client:
     ask("anything else?")
     check("R13 orphaned claim recovered and applied", action(aid)["status"] == "applied", action(aid))
 
+    # A1-A7 add_to_list (ME-397). Visibility is checked through get_watchlist and /api/watchlist,
+    # because a row on an imported item (imdb) used to be hidden there while the action said "applied".
+    from db import get_watchlist  # noqa: E402
+
+    def listed() -> dict:
+        with get_conn() as c:
+            return {w["title"]: w for w in get_watchlist(c)}
+
+    async def fake_lookup(title, year):
+        return {"author": "Greg Egan", "cover_url": "https://covers.openlibrary.org/b/id/1-M.jpg",
+                "year": 1995, "genres": ["Science fiction"]}
+    real_lookup = oa.lookup_book
+    oa.lookup_book = fake_lookup
+
+    # A1 Existing imported film → one to-watch row, visible in the watchlist and /api/watchlist
+    seed(); before = state(); reviewer(APPROVE)
+    oracle_says("Queued.", [{"action": "add_to_list", "title": "Fight Club", "year": 1999, "media_type": "film", "user_quote": "add Fight Club to my watchlist"}])
+    a = action(ask("Please add Fight Club to my watchlist")["actions"][0]["id"])
+    with get_conn() as c:
+        rows = [tuple(r) for r in c.execute("SELECT interaction, shelf FROM user_interactions WHERE media_id='tt0137523' AND shelf IS NOT NULL")]
+    check("A1 existing film → applied, one to-watch row", a["status"] == "applied" and rows == [("watchlist", "to-watch")], (a, rows))
+    check("A1 Fight Club is in get_watchlist", "Fight Club" in listed() and listed()["Fight Club"]["shelf"] == "to-watch", listed())
+    check("A1 Fight Club is in /api/watchlist", any(w["title"] == "Fight Club" for w in client.get("/api/watchlist").json()))
+    check("A1 search watchlist state sees it", "tt0137523" in server._get_user_state(get_conn())[0])
+    r = client.post(f"/api/oracle/actions/{a['id']}/undo")
+    check("A1 undo restores state", r.status_code == 200 and state() == before, r.text)
+
+    # A2 Duplicate (already on a list through any import) → rejected, nothing written
+    seed(); before = state(); reviewer(APPROVE)
+    oracle_says("Queued.", [{"action": "add_to_list", "title": "Dune", "year": 2021, "media_type": "film", "user_quote": "add Dune to my watchlist"}])
+    a = action(ask("add Dune to my watchlist")["actions"][0]["id"])
+    check("A2 already listed → rejected, DB untouched", a["status"] == "rejected" and "already" in (a["reason"] or "") and state() == before, a)
+
+    # A3 New book → oracle row on to-read with author, cover, year; visible; undo removes it
+    seed(); before = state(); reviewer(APPROVE)
+    oracle_says("Queued.", [{"action": "add_to_list", "title": "Schild's Ladder", "media_type": "book", "user_quote": "Add Schild's Ladder to my reading list"}])
+    a = action(ask("Add Schild's Ladder to my reading list")["actions"][0]["id"])
+    w = listed().get("Schild's Ladder")
+    check("A3 new book → applied, visible on to-read with lookup details",
+          a["status"] == "applied" and w and w["shelf"] == "to-read" and w["author"] == "Greg Egan"
+          and w["cover_url"] and w["year"] == 1995 and w["id"].startswith("oracle:book:"), (a, w))
+    check("A3 new book in /api/watchlist", any(x["title"] == "Schild's Ladder" for x in client.get("/api/watchlist").json()))
+    client.post(f"/api/oracle/actions/{a['id']}/undo")
+    check("A3 undo removes row and item", state() == before)
+
+    # A4 Lookup fails → bare row, still visible
+    async def no_lookup(title, year):
+        return None
+    oa.lookup_book = no_lookup
+    seed(); reviewer(APPROVE)
+    oracle_says("Queued.", [{"action": "add_to_list", "title": "Schild's Ladder", "media_type": "book", "user_quote": "Schild's Ladder to my reading list"}])
+    a = action(ask("Add Schild's Ladder to my reading list")["actions"][0]["id"])
+    w = listed().get("Schild's Ladder")
+    check("A4 lookup failed → bare row still on to-read", a["status"] == "applied" and w and w["shelf"] == "to-read" and not w["author"], (a, w))
+    oa.lookup_book = fake_lookup
+
+    # A5 Podcast has no list; quote must be in the message; target changed during review → rejected
+    seed(); reviewer(APPROVE)
+    oracle_says("Queued.", [{"action": "add_to_list", "title": "Serial", "media_type": "podcast", "user_quote": "add Serial"}])
+    a = action(ask("add Serial")["actions"][0]["id"])
+    check("A5 podcast → rejected", a["status"] == "rejected", a)
+    oracle_says("Queued.", [{"action": "add_to_list", "title": "Arrival", "year": 2016, "media_type": "film", "user_quote": "put Arrival on my list"}])
+    a = action(ask("what is Arrival about?")["actions"][0]["id"])
+    check("A5 quote not in message → rejected", a["status"] == "rejected" and "user_quote" in (a["reason"] or ""), a)
+    seed(); before = state(); reviewer(APPROVE)
+    (TMP / "mutate.sql").write_text("INSERT INTO media_items (id, media_type, title, year, source, source_id) VALUES ('x:arrival','film','Arrival',2016,'imdb','x');")
+    oracle_says("Queued.", [{"action": "add_to_list", "title": "Arrival", "year": 2016, "media_type": "film", "user_quote": "add Arrival to my watchlist"}])
+    a = action(ask("add Arrival to my watchlist")["actions"][0]["id"])
+    (TMP / "mutate.sql").unlink()
+    check("A5 target changed during review → rejected", a["status"] == "rejected" and "changed" in (a["reason"] or ""), a)
+
+    # A6 Max 5 per message still holds
+    seed(); reviewer(APPROVE)
+    oracle_says("Queued.", [{"action": "add_to_list", "title": f"Book {i}", "media_type": "book", "user_quote": "add these books"} for i in range(6)])
+    acts = ask("add these books")["actions"]
+    check("A6 sixth add_to_list rejected", len(acts) == 6 and acts[5]["status"] == "rejected" and "more than" in acts[5]["reason"], acts)
+
+    # A7 A search-added tmdb row and an imdb row of the same work are listed once
+    seed()
+    with get_conn() as c:
+        c.execute("INSERT INTO media_items (id, media_type, title, year, source, source_id, work_key) VALUES ('tmdb:movie:550','film','Fight Club',1999,'tmdb','550','wk:fc')")
+        c.execute("UPDATE media_items SET work_key='wk:fc' WHERE id='tt0137523'")
+        for mid in ("tmdb:movie:550", "tt0137523"):
+            c.execute("INSERT INTO user_interactions (media_id, interaction, shelf, date_added, source) VALUES (?,?,?,?,?)", (mid, "watchlist", "to-watch", "2026-01-01", "x"))
+        c.commit()
+        n = [w["id"] for w in get_watchlist(c) if w["title"] == "Fight Club"]
+    check("A7 one work, one watchlist entry (the search row)", n == ["tmdb:movie:550"], n)
+    oa.lookup_book = real_lookup
+
 print(f"\n{'All checks passed.' if not failures else f'{failures} check(s) failed.'}")
 sys.exit(1 if failures else 0)

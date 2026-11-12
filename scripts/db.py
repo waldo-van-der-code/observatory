@@ -231,20 +231,32 @@ def get_or_create_item(conn: sqlite3.Connection, item: dict) -> str:
     return db_id
 
 
+SEARCH_SOURCES = ("tmdb", "openlibrary", "googlebooks")
+
+
 def get_watchlist(conn: sqlite3.Connection) -> list[dict]:
     """Return all items on the to-watch or to-read shelf."""
     rows = conn.execute("""
         SELECT m.id, m.title, m.media_type, m.author, m.director, m.year,
                m.genres, m.cover_url, m.source, m.source_id,
-               ui.shelf, ui.rating, ui.date_added
+               ui.shelf, ui.rating, ui.date_added,
+               COALESCE(m.work_key, m.id) AS wk
         FROM media_items m
         JOIN user_interactions ui ON ui.media_id = m.id
         WHERE ui.shelf IN ('to-watch', 'to-read')
-          AND m.source IN ('tmdb', 'openlibrary', 'googlebooks')
         ORDER BY ui.date_added DESC
     """).fetchall()
+    # Search-added rows always show. A row from an import or the Oracle (imdb, goodreads, oracle...)
+    # shows too, but once per work and never next to a search row of the same work: the Oracle's
+    # "add Fight Club" writes on the imdb row, which used to be hidden here (OBS-058).
+    search_works = {r["wk"] for r in rows if r["source"] in SEARCH_SOURCES}
+    seen_works: set[str] = set()
     result = []
     for r in rows:
+        if r["source"] not in SEARCH_SOURCES:
+            if r["wk"] in search_works or r["wk"] in seen_works:
+                continue
+            seen_works.add(r["wk"])
         result.append({
             "id": r["id"],
             "title": r["title"],
