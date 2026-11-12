@@ -425,6 +425,23 @@ with TestClient(server.app) as client:
         c.commit()
         n = [w["id"] for w in get_watchlist(c) if w["title"] == "Fight Club"]
     check("A7 one work, one watchlist entry (the search row)", n == ["tmdb:movie:550"], n)
+
+    # A8 The dashboard's reading list is static HTML: an applied add must rebuild it, or the book
+    # stays invisible there until the next deploy (ME-397, found in the live check).
+    import time  # noqa: E402
+    dash = TMP / "dashboard.html"
+    os.environ["OBS_DASHBOARD_OUT"] = str(dash)
+    seed(); reviewer(APPROVE)
+    oracle_says("Queued.", [{"action": "add_to_list", "title": "Schild's Ladder", "media_type": "book", "user_quote": "Add Schild's Ladder to my reading list"}])
+    a = action(ask("Add Schild's Ladder to my reading list")["actions"][0]["id"])
+    for _ in range(120):
+        if dash.exists() and "Schild" in dash.read_text():
+            break
+        time.sleep(1)
+    check("A8 applied add rebuilds the dashboard reading list", a["status"] == "applied" and dash.exists()
+          and "Schild" in dash.read_text(), (a, dash.exists()))
+    dash.unlink(missing_ok=True)
+    del os.environ["OBS_DASHBOARD_OUT"]
     oa.lookup_book = real_lookup
 
 print(f"\n{'All checks passed.' if not failures else f'{failures} check(s) failed.'}")

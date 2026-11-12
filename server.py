@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -33,6 +35,48 @@ STATIC_DIR = Path(__file__).parent / "static"
 DOCS_DIR   = Path(__file__).parent / "docs"
 BRAIN_DATA = Path(__file__).parent / "data" / "processed" / "brain_data.json"
 BRAIN_ART  = Path(__file__).parent / "data" / "cache" / "brain_art"
+
+# ── Dashboard rebuild after list/rating changes (ME-397) ───────────────────────
+# dashboard.html is static, so its reading list only showed an Oracle add after the next deploy.
+# One build at a time in a thread; a request during a build runs one more build afterwards.
+_dash_lock = threading.Lock()
+_dash_state = {"pending": False, "running": False}
+
+
+def _rebuild_dashboard() -> None:
+    out = os.environ.get("OBS_DASHBOARD_OUT")
+    if os.environ.get("OBS_DB_PATH") and not out:
+        return  # a test DB never overwrites the real dashboard
+    with _dash_lock:
+        _dash_state["pending"] = True
+        if _dash_state["running"]:
+            return
+        _dash_state["running"] = True
+    threading.Thread(target=_dash_worker, args=(Path(out) if out else DASHBOARD,), daemon=True).start()
+
+
+def _dash_worker(out: Path) -> None:
+    while True:
+        with _dash_lock:
+            if not _dash_state["pending"]:
+                _dash_state["running"] = False
+                return
+            _dash_state["pending"] = False
+        tmp = out.with_name(out.name + ".tmp")
+        try:
+            r = subprocess.run([sys.executable, str(Path(__file__).parent / "scripts" / "build_dashboard.py"),
+                                "--out", str(tmp)], capture_output=True, text=True, timeout=300)
+            if r.returncode == 0 and tmp.exists():
+                os.replace(tmp, out)  # readers never see a half-written file
+            else:
+                print(f"dashboard rebuild failed: {r.stderr[-500:]}", file=sys.stderr)
+        except Exception as e:  # never let a rebuild take the server down
+            print(f"dashboard rebuild failed: {e}", file=sys.stderr)
+
+
+async def _process_queue_then_rebuild() -> None:
+    await oracle_actions.process_queue(get_conn, _run_claude)
+    _rebuild_dashboard()
 
 app = FastAPI(title="Entertainment Center")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -68,7 +112,7 @@ def _startup():
         oracle_sessions.init_tables(conn)
     # Finish any Oracle changes still waiting for their security review (OBS-050)
     import asyncio
-    asyncio.get_running_loop().create_task(oracle_actions.process_queue(get_conn, _run_claude))
+    asyncio.get_running_loop().create_task(_process_queue_then_rebuild())
     if not _tmdb_key():
         print(
             "\n⚠️  TMDB_API_KEY not found. Film/TV search will be disabled.\n"
@@ -223,6 +267,7 @@ def api_rate(body: RatingIn):
         raise
     finally:
         conn.close()
+    _rebuild_dashboard()
     return {"rating": rating}
 
 
@@ -253,6 +298,7 @@ def api_interaction(body: InteractionIn):
         conn.commit()
     finally:
         conn.close()
+    _rebuild_dashboard()
     return {"ok": True}
 
 
@@ -281,6 +327,7 @@ def api_remove_watchlist(item_id: str):
         conn.commit()
     finally:
         conn.close()
+    _rebuild_dashboard()
     return {"ok": True}
 
 
@@ -1243,7 +1290,7 @@ async def api_ask(body: AskIn, background: BackgroundTasks):
             aconn, answer, body.question, history, conversation_id)
         backlog = oracle_actions.has_queued(aconn)  # also retries earlier reviews that could not run
     if backlog:
-        background.add_task(oracle_actions.process_queue, get_conn, _run_claude)
+        background.add_task(_process_queue_then_rebuild)
     if session_id is not None and body.session_id is None:
         background.add_task(oracle_sessions.auto_title, get_conn, _run_claude, session_id, body.question, clean_answer)
 
@@ -1273,6 +1320,7 @@ def api_oracle_action_undo(action_id: int):
         ok, msg = oracle_actions.undo(conn, action_id)
         if not ok:
             raise HTTPException(409, msg)
+        _rebuild_dashboard()
         return JSONResponse(oracle_actions.list_actions(conn, ids=[action_id])[0])
     finally:
         conn.close()
@@ -1284,6 +1332,7 @@ def api_oracle_action_confirm(action_id: int):
         status, reason = oracle_actions.confirm(conn, action_id)
         if status != 200:
             raise HTTPException(status, reason)
+        _rebuild_dashboard()
         return JSONResponse(oracle_actions.list_actions(conn, ids=[action_id])[0])
 
 
