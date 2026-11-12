@@ -8,6 +8,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import use_project_venv  # noqa: E402,F401  re-runs under the project venv when fastapi is missing (ME-397)
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "scripts")]
 failures = 0

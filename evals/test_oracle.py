@@ -15,6 +15,8 @@ import tempfile
 import time
 from pathlib import Path
 
+import use_project_venv  # noqa: E402,F401  re-runs under the project venv when fastapi is missing (ME-397)
+
 ROOT = Path(__file__).resolve().parent.parent
 TMP = Path(tempfile.mkdtemp(prefix="obs-oracle-eval-"))
 TOKEN_FILE = TMP / "claude-code-oauth-token"

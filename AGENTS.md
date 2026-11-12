@@ -42,6 +42,7 @@ Fourth whitelisted action: "add Schild's Ladder to my reading list". Film and tv
 - The row (`interaction='watchlist'`, `source='oracle'`) goes on the top-priority item of the work (e.g. the imdb id), so `db.get_watchlist` no longer filters by source: search-added rows (tmdb/openlibrary/googlebooks) always show, any other source shows once per `COALESCE(work_key, id)` and never next to a search row of the same work. Do not narrow that filter again, or Oracle-added imports vanish from `/api/watchlist` and the search watchlist state.
 - Unknown books/comics get a `source='oracle'` row filled by `oracle_actions.lookup_book` (reuses `api_search._search_openlibrary`, exact title match only, runs before the write lock); a failed lookup leaves a bare row. Films/series unknown to the DB get a bare row.
 - Eval `evals/test_oracle_actions.py` A1-A7 checks visibility through `get_watchlist`, `/api/watchlist` and `_get_user_state`, not just row counts.
+- Evals that import `server.py` start with `import use_project_venv` (`evals/use_project_venv.py`): under a Python without fastapi (Robbedoes's verify runs bare `python3`) they re-exec themselves with `~/Library/Scripts/entertainment-env/bin/python` (override `OBS_VENV_PYTHON`). Add it to any new eval that needs fastapi.
 
 ## Oracle sessions (OBS-051)
 

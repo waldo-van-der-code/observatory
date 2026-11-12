@@ -9,6 +9,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+import use_project_venv  # noqa: E402,F401  re-runs under the project venv when fastapi is missing (ME-397)
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
